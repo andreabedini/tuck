@@ -13,6 +13,11 @@ proc ::tuck::phase::analyse {labels} {
     }
     ::tuck::phase::load_closure $pkgs
     ::tuck::graph::validate
+    foreach c $canon {
+        if {![dict exists $::tuck::graph::targets $c]} {
+            error "tuck: no such target: $c"
+        }
+    }
     foreach label [::tuck::graph::topo_sort $canon] {
         set node [dict get $::tuck::graph::targets $label]
         set rule [dict get $node rule]

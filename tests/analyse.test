@@ -86,4 +86,11 @@ test analyse-no-impl {a target whose rule has no impl errors} -setup {
     string match "tuck: rule data has no impl" $err
 } -result 1
 
+test analyse-missing-target {analysing a non-existent target errors clearly} -setup {
+    init_repo [build_repo]
+} -body {
+    catch {::tuck::phase::analyse {//app:nosuch}} err
+    string match "tuck: no such target: //app:nosuch" $err
+} -result 1
+
 cleanupTests
