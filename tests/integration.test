@@ -11,21 +11,28 @@ proc make_repo {} {
         rules {
             tuck::rule genrule {
                 attrs {
-                    name {type string mandatory true}
+                    name {type string  mandatory true}
                     srcs {type sources mandatory true}
-                    deps {type deps mandatory false default {}}
+                    out  {type string  mandatory true}
+                    cmd  {type string  mandatory true}
+                    deps {type deps    mandatory false default {}}
                 }
                 impl {
-                    # analysis impl (M2)
+                    set out [ctx.declare_output $ctx [ctx.attr $ctx out]]
+                    set ins [ctx.attr $ctx srcs]
+                    foreach d [ctx.attr $ctx deps] {
+                        lappend ins {*}[ctx.dep_outputs $ctx $d]
+                    }
+                    ctx.action $ctx inputs $ins outputs [list $out] cmd [ctx.attr $ctx cmd]
                 }
             }
         }
     } [file join $root TUCK]
     file mkdir [file join $root app]
-    makeFile {targets { genrule {name a srcs {a.c} deps {//lib:util}} }} \
+    makeFile {targets { genrule {name a srcs {a.c} out a cmd {cc -o a} deps {//lib:util}} }} \
         [file join $root app BUILD]
     file mkdir [file join $root lib]
-    makeFile {targets { genrule {name util srcs {u.c}} }} \
+    makeFile {targets { genrule {name util srcs {u.c} out util.o cmd {cc -c u.c -o util.o}} }} \
         [file join $root lib BUILD]
     return $root
 }
@@ -60,8 +67,8 @@ test targets-package {":..." lists all targets in a package} -setup {
     set root [make_repo]
     file mkdir [file join $root multi]
     makeFile {targets {
-        genrule {name one srcs {a.c}}
-        genrule {name two srcs {b.c}}
+        genrule {name one srcs {a.c} out one cmd {cc}}
+        genrule {name two srcs {b.c} out two cmd {cc}}
     }} [file join $root multi BUILD]
 } -body {
     cd $root
@@ -78,5 +85,33 @@ test targets-recursive {"//..." scans the whole tree} -setup {
     if {$code != 0} { error "exit $code: $out" }
     set out
 } -result "//app:a\n//lib:util"
+
+test analyze-dump {analyze prints every action leaves-first} -setup {
+    set root [make_repo]
+} -body {
+    cd $root
+    lassign [run_tuck $root analyze //app:a] code out
+    if {$code != 0} { error "exit $code: $out" }
+    set out
+} -result "//lib:util#0
+  inputs:  source:lib/u.c
+  outputs: declared://lib:util:util.o
+  cmd:     cc -c u.c -o util.o
+//app:a#0
+  inputs:  source:app/a.c declared://lib:util:util.o
+  outputs: declared://app:a:a
+  cmd:     cc -o a"
+
+test query-actions {query actions prints only the target's actions} -setup {
+    set root [make_repo]
+} -body {
+    cd $root
+    lassign [run_tuck $root query actions //app:a] code out
+    if {$code != 0} { error "exit $code: $out" }
+    set out
+} -result "//app:a#0
+  inputs:  source:app/a.c declared://lib:util:util.o
+  outputs: declared://app:a:a
+  cmd:     cc -o a"
 
 cleanupTests

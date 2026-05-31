@@ -1,7 +1,7 @@
 #!/usr/bin/env tclsh
 namespace eval ::tuck {}
 set ::tuck::_libdir [file join [file dirname [file normalize [info script]]] lib]
-foreach m {config label rules target graph action ctx loader} {
+foreach m {config label rules target graph action ctx analyse loader} {
     source [file join $::tuck::_libdir $m.tcl]
 }
 
@@ -17,6 +17,31 @@ proc ::tuck::cmd::query_deps {label} {
     }
     foreach l [::tuck::graph::topo_sort [list $canon]] {
         puts $l
+    }
+}
+
+proc ::tuck::cmd::_print_action {id} {
+    set a [dict get $::tuck::graph::actions $id]
+    puts [dict get $a id]
+    puts "  inputs:  [dict get $a inputs]"
+    puts "  outputs: [dict get $a outputs]"
+    puts "  cmd:     [dict get $a cmd]"
+}
+
+proc ::tuck::cmd::analyze {label} {
+    ::tuck::phase::analyse [list $label]
+    foreach id [dict keys $::tuck::graph::actions] {
+        ::tuck::cmd::_print_action $id
+    }
+}
+
+proc ::tuck::cmd::query_actions {label} {
+    set canon [::tuck::util::canon $label ""]
+    ::tuck::phase::analyse [list $canon]
+    foreach id [dict keys $::tuck::graph::actions] {
+        if {[dict get $::tuck::graph::actions $id target] eq $canon} {
+            ::tuck::cmd::_print_action $id
+        }
     }
 }
 
@@ -94,10 +119,12 @@ proc ::tuck::main {argv} {
     set cmd [lindex $argv 0]
     switch -- $cmd {
         targets { ::tuck::cmd::targets [lindex $argv 1] }
+        analyze { ::tuck::cmd::analyze [lindex $argv 1] }
         query {
             set sub [lindex $argv 1]
             switch -- $sub {
-                deps { ::tuck::cmd::query_deps [lindex $argv 2] }
+                deps    { ::tuck::cmd::query_deps    [lindex $argv 2] }
+                actions { ::tuck::cmd::query_actions [lindex $argv 2] }
                 default { error "tuck: unknown query subcommand: $sub" }
             }
         }
