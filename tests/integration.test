@@ -3,9 +3,9 @@ namespace import ::tcltest::*
 
 set ::tuckbin [file normalize [file join [file dirname [info script]] .. tuck.tcl]]
 
-# Build a fixture repo and return its root.
+# Build a fixture repo (unique dir per call) and return its root.
 proc make_repo {} {
-    set root [makeDirectory itrepo]
+    set root [makeDirectory itrepo[incr ::repocount]]
     file mkdir [file join $root .tuck]
     makeFile {
         rules {
@@ -45,5 +45,37 @@ test query-deps {leaves-first dep order} -setup {
     if {$code != 0} { error "exit $code: $out" }
     set out
 } -result "//lib:util\n//app:a"
+
+test targets-exact {exact label prints itself} -setup {
+    set root [make_repo]
+} -body {
+    cd $root
+    lassign [run_tuck $root targets //lib:util] code out
+    if {$code != 0} { error "exit $code: $out" }
+    set out
+} -result "//lib:util"
+
+test targets-package {":..." lists all targets in a package} -setup {
+    set root [make_repo]
+    file mkdir [file join $root multi]
+    makeFile {targets {
+        genrule {name one srcs {a.c}}
+        genrule {name two srcs {b.c}}
+    }} [file join $root multi BUILD]
+} -body {
+    cd $root
+    lassign [run_tuck $root targets //multi:...] code out
+    if {$code != 0} { error "exit $code: $out" }
+    set out
+} -result "//multi:one\n//multi:two"
+
+test targets-recursive {"//..." scans the whole tree} -setup {
+    set root [make_repo]
+} -body {
+    cd $root
+    lassign [run_tuck $root targets //...] code out
+    if {$code != 0} { error "exit $code: $out" }
+    set out
+} -result "//app:a\n//lib:util"
 
 cleanupTests
