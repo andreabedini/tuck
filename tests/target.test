@@ -1,0 +1,50 @@
+package require tcltest
+namespace import ::tcltest::*
+source [file join [file dirname [info script]] .. lib label.tcl]
+source [file join [file dirname [info script]] .. lib rules.tcl]
+source [file join [file dirname [info script]] .. lib target.tcl]
+
+proc reset {} {
+    set ::tuck::graph::rules {}
+    set ::tuck::graph::targets {}
+    set ::tuck::_current_pkg ""
+    proc ::tuck::_install_ctor {name} {}
+}
+
+test register-target {registers a node with canonical label} -setup {
+    reset
+    ::tuck::register_rule genrule {
+        attrs {name {type string mandatory true}
+               srcs {type sources mandatory true}}
+        impl x
+    }
+    set ::tuck::_current_pkg tools/hello
+} -body {
+    ::tuck::register_target genrule {name hello srcs {main.c}}
+    dict get $::tuck::graph::targets //tools/hello:hello
+} -result {label //tools/hello:hello rule genrule attrs {name hello srcs main.c} package tools/hello deps {}}
+
+test extract-deps {deps attr is canonicalized into the dep set} -setup {
+    reset
+    ::tuck::register_rule lib {
+        attrs {name {type string mandatory true}
+               deps {type deps mandatory false default {}}}
+        impl x
+    }
+    set ::tuck::_current_pkg app
+} -body {
+    ::tuck::register_target lib {name a deps {//lib:util :other}}
+    dict get $::tuck::graph::targets //app:a deps
+} -result {//lib:util //app:other}
+
+test dup-label {duplicate label errors} -setup {
+    reset
+    ::tuck::register_rule lib {attrs {name {type string mandatory true}} impl x}
+    set ::tuck::_current_pkg p
+} -body {
+    ::tuck::register_target lib {name a}
+    catch {::tuck::register_target lib {name a}} err
+    string match "tuck: duplicate target label: //p:a" $err
+} -result 1
+
+cleanupTests
