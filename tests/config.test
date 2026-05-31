@@ -1,0 +1,27 @@
+package require tcltest
+namespace import ::tcltest::*
+source [file join [file dirname [info script]] .. lib config.tcl]
+
+test find_root-direct {root is the dir containing .tuck/} -setup {
+    set top [makeDirectory rootcase]
+    file mkdir [file join $top .tuck]
+} -body {
+    ::tuck::config::find_root $top
+} -result [file normalize [file join [temporaryDirectory] rootcase]]
+
+test find_root-ancestor {walks up to find .tuck/} -setup {
+    set top [makeDirectory rootcase2]
+    file mkdir [file join $top .tuck]
+    file mkdir [file join $top a b]
+} -body {
+    ::tuck::config::find_root [file join $top a b]
+} -result [file normalize [file join [temporaryDirectory] rootcase2]]
+
+test find_root-missing {errors when no .tuck/ anywhere} -setup {
+    set top [makeDirectory norootcase]
+} -body {
+    catch {::tuck::config::find_root $top} err
+    string match "tuck: no .tuck/*" $err
+} -result 1
+
+cleanupTests
