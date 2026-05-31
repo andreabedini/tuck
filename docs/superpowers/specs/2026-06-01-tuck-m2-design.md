@@ -88,7 +88,8 @@ colons inside labels are harmless.
 - `::tuck::graph::target_outputs` — dict: label → list of declared output ids;
   populated by `ctx.declare_output`, read by `ctx.dep_outputs`.
 
-A per-target action counter (reset per analysis run) generates the `#<n>` suffix.
+A per-target action counter (cleared by `::tuck::reset`, i.e. once per process —
+the CLI calls `reset` once at startup) generates the `#<n>` suffix.
 
 ## 5. Analysis driver
 
