@@ -1,0 +1,44 @@
+package require tcltest
+namespace import ::tcltest::*
+source [file join [file dirname [info script]] .. lib graph.tcl]
+
+proc node {label deps} {
+    dict set ::tuck::graph::targets $label \
+        [dict create label $label rule r attrs {} package p deps $deps]
+}
+
+test topo-leaves-first {dependencies come before dependents} -setup {
+    set ::tuck::graph::targets {}
+    node //a {//b}
+    node //b {//c}
+    node //c {}
+} -body {
+    ::tuck::graph::topo_sort {//a}
+} -result {//c //b //a}
+
+test topo-cycle {a cycle is detected and reported} -setup {
+    set ::tuck::graph::targets {}
+    node //a {//b}
+    node //b {//a}
+} -body {
+    catch {::tuck::graph::topo_sort {//a}} err
+    string match "tuck: dependency cycle:*" $err
+} -result 1
+
+test validate-dangling {unknown dep errors} -setup {
+    set ::tuck::graph::targets {}
+    node //a {//missing}
+} -body {
+    catch {::tuck::graph::validate} err
+    string match "tuck: //a depends on unknown target //missing" $err
+} -result 1
+
+test validate-ok {fully-resolved graph passes} -setup {
+    set ::tuck::graph::targets {}
+    node //a {//b}
+    node //b {}
+} -body {
+    ::tuck::graph::validate
+} -result {}
+
+cleanupTests
