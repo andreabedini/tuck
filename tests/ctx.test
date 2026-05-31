@@ -1,0 +1,78 @@
+package require tcltest
+namespace import ::tcltest::*
+foreach m {label rules action ctx} {
+    source [file join [file dirname [info script]] .. lib $m.tcl]
+}
+
+# A genrule schema and a target node to act as ctx.
+proc setup_ctx {} {
+    set ::tuck::graph::rules {}
+    set ::tuck::graph::artifacts {}
+    set ::tuck::graph::actions {}
+    set ::tuck::graph::target_outputs {}
+    set ::tuck::graph::_action_counter {}
+    dict set ::tuck::graph::rules genrule [dict create schema {
+        name {type string  mandatory true}
+        srcs {type sources mandatory true}
+        out  {type string  mandatory true}
+        cmd  {type string  mandatory true}
+        deps {type deps    mandatory false default {}}
+    } impl __tuck_impl_genrule]
+}
+
+proc app_node {} {
+    return [dict create label //app:hello rule genrule package app \
+        attrs {name hello srcs {main.c util.c} out hello cmd {cc -o hello} deps {//lib:util}} \
+        deps {//lib:util}]
+}
+
+test attr-sources {sources resolve to source artifact ids} -setup {setup_ctx} -body {
+    ::tuck::ctx::attr [app_node] srcs
+} -result {source:app/main.c source:app/util.c}
+
+test attr-deps {deps resolve to canonical labels} -setup {setup_ctx} -body {
+    ::tuck::ctx::attr [app_node] deps
+} -result {//lib:util}
+
+test attr-scalar {scalar attrs return the raw value} -setup {setup_ctx} -body {
+    ::tuck::ctx::attr [app_node] name
+} -result {hello}
+
+test attr-unknown {unknown attr key errors} -setup {setup_ctx} -body {
+    catch {::tuck::ctx::attr [app_node] bogus} err
+    string match "tuck: ctx.attr: no attribute 'bogus'" $err
+} -result 1
+
+test label-package {ctx.label and ctx.package} -setup {setup_ctx} -body {
+    list [::tuck::ctx::label [app_node]] [::tuck::ctx::package [app_node]]
+} -result {//app:hello app}
+
+test declare-output {declares an artifact and records it under the target} -setup {setup_ctx} -body {
+    set id [::tuck::ctx::declare_output [app_node] hello]
+    list $id [dict get $::tuck::graph::target_outputs //app:hello]
+} -result {declared://app:hello:hello declared://app:hello:hello}
+
+test dep-outputs {returns a dependency's declared outputs} -setup {
+    setup_ctx
+    dict set ::tuck::graph::target_outputs //lib:util {declared://lib:util:util.o}
+} -body {
+    ::tuck::ctx::dep_outputs [app_node] //lib:util
+} -result {declared://lib:util:util.o}
+
+test dep-outputs-unanalysed {dep_outputs on an unanalysed label errors} -setup {setup_ctx} -body {
+    catch {::tuck::ctx::dep_outputs [app_node] //nope:x} err
+    string match "tuck: ctx.dep_outputs: //nope:x has no analysed outputs" $err
+} -result 1
+
+test action-registers {ctx.action registers a node and returns its id} -setup {setup_ctx} -body {
+    set id [::tuck::ctx::action [app_node] inputs {a} outputs {b} cmd {cc}]
+    list $id [dict get $::tuck::graph::actions $id inputs] \
+             [dict get $::tuck::graph::actions $id env]
+} -result {//app:hello#0 a {}}
+
+test action-missing-arg {ctx.action requires inputs/outputs/cmd} -setup {setup_ctx} -body {
+    catch {::tuck::ctx::action [app_node] inputs {a} outputs {b}} err
+    string match "tuck: ctx.action: missing cmd" $err
+} -result 1
+
+cleanupTests
