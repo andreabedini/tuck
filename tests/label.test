@@ -1,0 +1,34 @@
+package require tcltest
+namespace import ::tcltest::*
+source [file join [file dirname [info script]] .. lib label.tcl]
+
+test parse-fqn {fully-qualified label} -body {
+    ::tuck::util::label_parse //tools/hello:hello
+} -result {pkg tools/hello name hello}
+
+test parse-shorthand {//pkg expands name to basename} -body {
+    ::tuck::util::label_parse //tools/hello
+} -result {pkg tools/hello name hello}
+
+test parse-shorthand-single {//lib -> //lib:lib} -body {
+    ::tuck::util::label_parse //lib
+} -result {pkg lib name lib}
+
+test parse-relative {:name resolves against current package} -body {
+    ::tuck::util::label_parse :util tools/hello
+} -result {pkg tools/hello name util}
+
+test parse-root-pkg {//:foo is the root package} -body {
+    ::tuck::util::label_parse //:foo
+} -result {pkg {} name foo}
+
+test parse-malformed {bare strings error} -body {
+    catch {::tuck::util::label_parse foo} err
+    string match "tuck: malformed label*" $err
+} -result 1
+
+test canon-basic {label_canon builds //pkg:name} -body {
+    ::tuck::util::label_canon tools/hello hello
+} -result {//tools/hello:hello}
+
+cleanupTests
