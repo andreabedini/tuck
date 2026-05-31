@@ -1,0 +1,72 @@
+package require tcltest
+namespace import ::tcltest::*
+foreach m {config label rules target graph loader} {
+    source [file join [file dirname [info script]] .. lib $m.tcl]
+}
+
+# Build a fixture repo: root TUCK defines a rule; two packages with a dep edge.
+proc build_repo {} {
+    set root [makeDirectory repo]
+    file mkdir [file join $root .tuck]
+    makeFile {
+        rules {
+            tuck::rule genrule {
+                attrs {
+                    name {type string mandatory true}
+                    srcs {type sources mandatory true}
+                    deps {type deps mandatory false default {}}
+                }
+                impl genrule_impl
+            }
+            proc genrule_impl {ctx} {}
+        }
+    } [file join $root TUCK]
+    file mkdir [file join $root app]
+    makeFile {
+        targets {
+            genrule {name a srcs {a.c} deps {//lib:util}}
+        }
+    } [file join $root app BUILD]
+    file mkdir [file join $root lib]
+    makeFile {
+        targets {
+            genrule {name util srcs {util.c}}
+        }
+    } [file join $root lib BUILD]
+    return $root
+}
+
+test lazy-load {loads seed package and follows deps; no others read} -setup {
+    set root [build_repo]
+    # an unreferenced package that must NOT be loaded
+    file mkdir [file join $root junk]
+    makeFile {targets { genrule {name nope srcs {x.c}} }} \
+        [file join $root junk BUILD]
+    ::tuck::reset
+    ::tuck::config::init $root
+    ::tuck::phase::setup
+    ::tuck::phase::load_root_rules
+} -body {
+    ::tuck::phase::load_closure {app}
+    lsort [dict keys $::tuck::graph::targets]
+} -result {//app:a //lib:util}
+
+test hermetic {BUILD files cannot use open/exec} -setup {
+    set root [makeDirectory hermrepo]
+    file mkdir [file join $root .tuck]
+    makeFile {} [file join $root TUCK]
+    file mkdir [file join $root evil]
+    makeFile {targets { open /etc/passwd r }} [file join $root evil BUILD]
+    ::tuck::reset
+    ::tuck::config::init $root
+    ::tuck::phase::setup
+    ::tuck::phase::load_root_rules
+} -body {
+    catch {::tuck::phase::load_closure {evil}} err
+    # safe interp reports the command as not allowed / invalid
+    expr {[string match "*invalid command*" $err] \
+          || [string match "*not allowed*" $err] \
+          || [string match "*permission denied*" $err]}
+} -result 1
+
+cleanupTests
