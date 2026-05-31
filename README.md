@@ -8,10 +8,10 @@ execution materializes. There is no separate DSL — rule constructors, rule
 implementations, and build files are all TCL; the constraint is the interpreter
 boundary, not a grammar.
 
-> **Status: Milestone 1 (loading phase).** Repo-root detection, lazy/transitive
-> `BUILD` loading, target-graph construction, label resolution, and topo-sort are
-> implemented. Analysis, actions, and execution are future milestones. See
-> [`DESIGN.md`](DESIGN.md) for the full design and milestone roadmap.
+> **Status: Milestone 2 (analysis phase).** On top of M1's loading phase, Tuck now
+> runs rule impls via `ctx.*` commands to build a static action graph (artifacts +
+> action nodes). Execution is a future milestone. See [`DESIGN.md`](DESIGN.md) for
+> the full design and milestone roadmap.
 
 ## Requirements
 
@@ -92,6 +92,12 @@ tclsh tuck.tcl targets //...                 # all targets in the repo
 
 # Print a target's transitive dependencies, leaves first
 tclsh tuck.tcl query deps //tools/hello:hello
+
+# Analyse a target's closure and print the action graph
+tclsh tuck.tcl analyze //tools/hello:hello
+
+# Print just one target's actions
+tclsh tuck.tcl query actions //tools/hello:hello
 ```
 
 `targets` and `query deps` load only the packages they need: loading follows

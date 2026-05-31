@@ -46,6 +46,9 @@ Source is in `lib/`, one namespace per file:
 | `lib/target.tcl` | `::tuck`         | target-node registration, dep extraction |
 | `lib/graph.tcl`  | `::tuck::graph`  | dangling-dep validation, topo-sort (cycle detect) |
 | `lib/loader.tcl` | `::tuck::phase`  | interpreter setup, per-file loading, lazy closure |
+| `lib/action.tcl` | `::tuck::graph`  | action-graph stores (artifacts/actions/target_outputs) + helpers |
+| `lib/ctx.tcl`    | `::tuck::ctx`    | the `ctx.*` surface for rule impls; `install` aliases it into the rules interp |
+| `lib/analyse.tcl`| `::tuck::phase`  | analysis driver: leaves-first impl invocation |
 | `tuck.tcl`       | `::tuck::cmd`/`main` | CLI parse + dispatch, top-level error catch |
 
 ### Interpreter model (the core of hermeticity)
@@ -81,6 +84,11 @@ filesystem.
 - Loading-phase invariants, all enforced with `tuck:`-prefixed errors: no duplicate
   labels, all deps resolve to known targets, no dependency cycles.
 - `topo_sort` is post-order DFS → **leaves-first** order, and detects cycles.
+- **Analysis is leaves-first**: `analyse` topo-sorts the closure so a dependency's
+  `declare_output`s are recorded before any dependent calls `ctx.dep_outputs`. The
+  `ctx` object passed to an impl *is* the target node. Action ids are per-target
+  sequential (`<label>#<n>`); `cmd` is stored verbatim (no `$OUT`/path resolution
+  until execution). A non-existent analyse target yields `tuck: no such target: ...`.
 
 ## Gotchas
 
