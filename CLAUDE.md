@@ -6,8 +6,8 @@ Guidance for working in the Tuck repository.
 
 Tuck is a hermetic, two-phase build system embedded in TCL, inspired by Buck2. The
 authoritative design is [`DESIGN.md`](DESIGN.md); the per-milestone spec and plan are
-under `docs/superpowers/`. **Currently only Milestone 1 (the loading phase) is
-implemented.**
+under `docs/superpowers/`. **Milestones 1 (loading phase) and 2 (analysis phase) are
+implemented; execution is the next milestone.**
 
 ## Toolchain
 
