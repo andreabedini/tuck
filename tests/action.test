@@ -1,0 +1,52 @@
+package require tcltest
+namespace import ::tcltest::*
+source [file join [file dirname [info script]] .. lib action.tcl]
+
+proc reset_stores {} {
+    set ::tuck::graph::artifacts {}
+    set ::tuck::graph::actions {}
+    set ::tuck::graph::target_outputs {}
+    set ::tuck::graph::_action_counter {}
+}
+
+test source-id {source artifact id format} -body {
+    ::tuck::graph::source_id app/main.c
+} -result {source:app/main.c}
+
+test declared-id {declared artifact id format} -body {
+    ::tuck::graph::declared_id //app:hello hello
+} -result {declared://app:hello:hello}
+
+test register-source-idempotent {registering the same source twice keeps one entry} -setup {
+    reset_stores
+} -body {
+    ::tuck::graph::register_source app/x.c
+    set id [::tuck::graph::register_source app/x.c]
+    list $id [dict size $::tuck::graph::artifacts] \
+        [dict get $::tuck::graph::artifacts $id]
+} -result {source:app/x.c 1 {type source path app/x.c}}
+
+test register-declared {declared artifact is stored with target + relpath} -setup {
+    reset_stores
+} -body {
+    set id [::tuck::graph::register_declared //lib:util util.o]
+    dict get $::tuck::graph::artifacts $id
+} -result {type declared target //lib:util relpath util.o}
+
+test register-action-sequential {action ids are per-target sequential} -setup {
+    reset_stores
+} -body {
+    set a [::tuck::graph::register_action //a {} {} cc {}]
+    set b [::tuck::graph::register_action //a {} {} cc {}]
+    set c [::tuck::graph::register_action //b {} {} cc {}]
+    list $a $b $c
+} -result {//a#0 //a#1 //b#0}
+
+test register-action-node {action node carries all fields} -setup {
+    reset_stores
+} -body {
+    set id [::tuck::graph::register_action //a {in1} {out1} {cc -o x} {K v}]
+    dict get $::tuck::graph::actions $id
+} -result {id //a#0 target //a inputs in1 outputs out1 cmd {cc -o x} env {K v} dynamic false}
+
+cleanupTests
