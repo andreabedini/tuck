@@ -71,6 +71,11 @@ filesystem.
 - **Target syntax is dict-style**: a constructor takes one brace block treated as a
   *dict of attributes* (pure data, never eval'd as a script). This corrects DESIGN §9's
   Python-like `name = "..."` form, which is not valid TCL.
+- **Rule `impl` is an inline body**, not a proc name: `impl { ...uses $ctx... }`.
+  `register_rule` compiles it into `__tuck_impl_<name> {ctx} <body>` in the rules
+  interp at registration time (so analysis always calls a real named proc). Note this
+  re-enters the rules interp from inside the `tuck::rule` alias — that is intentional
+  and works. A body of `{ helper $ctx }` recovers the named-proc style.
 - **Loading is lazy/transitive**: load the requested package, follow deps to other
   packages until the graph closes. `//...` is the only eager (tree-scanning) path.
 - Loading-phase invariants, all enforced with `tuck:`-prefixed errors: no duplicate

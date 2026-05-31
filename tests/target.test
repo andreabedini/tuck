@@ -16,7 +16,6 @@ test register-target {registers a node with canonical label} -setup {
     ::tuck::register_rule genrule {
         attrs {name {type string mandatory true}
                srcs {type sources mandatory true}}
-        impl x
     }
     set ::tuck::_current_pkg tools/hello
 } -body {
@@ -29,7 +28,6 @@ test extract-deps {deps attr is canonicalized into the dep set} -setup {
     ::tuck::register_rule lib {
         attrs {name {type string mandatory true}
                deps {type deps mandatory false default {}}}
-        impl x
     }
     set ::tuck::_current_pkg app
 } -body {
@@ -39,7 +37,7 @@ test extract-deps {deps attr is canonicalized into the dep set} -setup {
 
 test dup-label {duplicate label errors} -setup {
     reset
-    ::tuck::register_rule lib {attrs {name {type string mandatory true}} impl x}
+    ::tuck::register_rule lib {attrs {name {type string mandatory true}}}
     set ::tuck::_current_pkg p
 } -body {
     ::tuck::register_target lib {name a}

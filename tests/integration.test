@@ -15,9 +15,10 @@ proc make_repo {} {
                     srcs {type sources mandatory true}
                     deps {type deps mandatory false default {}}
                 }
-                impl genrule_impl
+                impl {
+                    # analysis impl (M2)
+                }
             }
-            proc genrule_impl {ctx} {}
         }
     } [file join $root TUCK]
     file mkdir [file join $root app]

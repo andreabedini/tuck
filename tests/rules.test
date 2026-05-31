@@ -31,15 +31,50 @@ test validate-int-type {int type rejects non-integers} -body {
     string match "tuck: r: attribute 'n' expected int*" $err
 } -result 1
 
-test register-rule {register_rule stores schema and impl} -body {
+# register_rule compiles an inline impl body into a named proc in the rules
+# interp, so it needs a real rules interp and a stubbed constructor installer.
+proc rules_setup {} {
     set ::tuck::graph::rules {}
-    # stub the target interp so the constructor-alias call is a no-op
+    namespace eval ::tuck::interp {variable rules}
+    set ::tuck::interp::rules [interp create]
     proc ::tuck::_install_ctor {name} {}
+}
+
+test register-rule {stores schema and the compiled impl proc name} -setup {
+    rules_setup
+} -body {
     ::tuck::register_rule genrule {
         attrs {name {type string mandatory true}}
-        impl genrule_impl
+        impl { }
     }
     dict get $::tuck::graph::rules genrule
-} -result {schema {name {type string mandatory true}} impl genrule_impl}
+} -cleanup {
+    interp delete $::tuck::interp::rules
+} -result {schema {name {type string mandatory true}} impl __tuck_impl_genrule}
+
+test inline-impl {impl body is compiled into a callable proc in the rules interp} -setup {
+    rules_setup
+} -body {
+    ::tuck::register_rule genrule {
+        attrs {name {type string mandatory true}}
+        impl { set ::result "ran with $ctx" }
+    }
+    set impl [dict get $::tuck::graph::rules genrule impl]
+    $::tuck::interp::rules eval [list $impl CTX123]
+    list $impl [$::tuck::interp::rules eval {set ::result}]
+} -cleanup {
+    interp delete $::tuck::interp::rules
+} -result {__tuck_impl_genrule {ran with CTX123}}
+
+test no-impl {a rule without an impl stores an empty impl} -setup {
+    rules_setup
+} -body {
+    ::tuck::register_rule data {
+        attrs {name {type string mandatory true}}
+    }
+    dict get $::tuck::graph::rules data impl
+} -cleanup {
+    interp delete $::tuck::interp::rules
+} -result {}
 
 cleanupTests

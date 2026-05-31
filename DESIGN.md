@@ -209,22 +209,27 @@ rules {
             cmd    { type string   mandatory true  }
             deps   { type deps     mandatory false default {} }
         }
-        impl genrule_impl
-    }
-
-    proc genrule_impl {ctx} {
-        set srcs [ctx.attr    $ctx srcs]
-        set out  [ctx.declare_output $ctx [ctx.attr $ctx out]]
-        ctx.action $ctx \
-            inputs  $srcs \
-            outputs [list $out] \
-            cmd     [ctx.attr $ctx cmd]
+        impl {
+            set srcs [ctx.attr    $ctx srcs]
+            set out  [ctx.declare_output $ctx [ctx.attr $ctx out]]
+            ctx.action $ctx \
+                inputs  $srcs \
+                outputs [list $out] \
+                cmd     [ctx.attr $ctx cmd]
+        }
     }
 }
 ```
 
 `tuck::rule` is aliased into the rules interpreter. It registers the rule in
 `::tuck::graph::rules` and installs a constructor alias in the target interpreter.
+
+The **impl is written inline** as a script body that takes an implicit `ctx`.
+At registration it is compiled into a named proc `__tuck_impl_<name> {ctx} <body>`
+in the rules interpreter, so analysis always invokes a real named proc (clean
+stack traces) while the author writes the ergonomic inline form. Helper procs may
+be defined separately in the `rules { }` block and called from the body; a body of
+`{ my_helper $ctx }` recovers the old named-proc style when that is preferred.
 
 ### 7.2 Attr Types
 
@@ -325,16 +330,14 @@ rules {
             srcs  { type sources mandatory true }
             deps  { type deps    mandatory false default {} }
         }
-        impl cc_binary_impl
-    }
-
-    proc cc_binary_impl {ctx} {
-        set srcs [ctx.attr $ctx srcs]
-        set out  [ctx.declare_output $ctx [ctx.attr $ctx name]]
-        ctx.action $ctx \
-            inputs  $srcs \
-            outputs [list $out] \
-            cmd     [list cc -o [ctx.attr $ctx name] {*}$srcs]
+        impl {
+            set srcs [ctx.attr $ctx srcs]
+            set out  [ctx.declare_output $ctx [ctx.attr $ctx name]]
+            ctx.action $ctx \
+                inputs  $srcs \
+                outputs [list $out] \
+                cmd     [list cc -o [ctx.attr $ctx name] {*}$srcs]
+        }
     }
 }
 

@@ -54,14 +54,17 @@ rules {
             out  { type string  mandatory true }
             deps { type deps    mandatory false default {} }
         }
-        impl genrule_impl
-    }
-
-    proc genrule_impl {ctx} {
-        # invoked during the analysis phase (a later milestone)
+        impl {
+            # invoked during the analysis phase (a later milestone),
+            # with an implicit `ctx`
+        }
     }
 }
 ```
+
+The `impl` is written inline as a script body taking an implicit `ctx`; Tuck
+compiles it into a named proc behind the scenes. Helper procs can be defined
+elsewhere in the `rules` block and called from the body.
 
 Targets are declared in each package's `BUILD` using dict-style constructors:
 
