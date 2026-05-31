@@ -1,0 +1,45 @@
+package require tcltest
+namespace import ::tcltest::*
+source [file join [file dirname [info script]] .. lib rules.tcl]
+
+set schema {
+    name {type string mandatory true}
+    srcs {type sources mandatory true}
+    out  {type string mandatory true}
+    deps {type deps mandatory false default {}}
+}
+
+test validate-ok {valid attrs pass and defaults fill in} -body {
+    ::tuck::validate_attrs genrule $::schema \
+        {name hello srcs {a.c} out hello}
+} -result {name hello srcs a.c out hello deps {}}
+
+test validate-missing {missing mandatory attr errors} -body {
+    catch {::tuck::validate_attrs genrule $::schema {name hello out hello}} err
+    string match "tuck: genrule: missing mandatory attribute 'srcs'" $err
+} -result 1
+
+test validate-unknown {unknown attr errors} -body {
+    catch {::tuck::validate_attrs genrule $::schema \
+        {name hello srcs {a.c} out hello bogus 1}} err
+    string match "tuck: genrule: unknown attribute 'bogus'" $err
+} -result 1
+
+test validate-int-type {int type rejects non-integers} -body {
+    set s {n {type int mandatory true}}
+    catch {::tuck::validate_attrs r $s {n notanint}} err
+    string match "tuck: r: attribute 'n' expected int*" $err
+} -result 1
+
+test register-rule {register_rule stores schema and impl} -body {
+    set ::tuck::graph::rules {}
+    # stub the target interp so the constructor-alias call is a no-op
+    proc ::tuck::_install_ctor {name} {}
+    ::tuck::register_rule genrule {
+        attrs {name {type string mandatory true}}
+        impl genrule_impl
+    }
+    dict get $::tuck::graph::rules genrule
+} -result {schema {name {type string mandatory true}} impl genrule_impl}
+
+cleanupTests
