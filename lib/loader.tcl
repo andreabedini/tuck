@@ -9,6 +9,10 @@ proc ::tuck::reset {} {
     set ::tuck::graph::rules {}
     set ::tuck::graph::targets {}
     set ::tuck::_current_pkg ""
+    set ::tuck::graph::artifacts {}
+    set ::tuck::graph::actions {}
+    set ::tuck::graph::target_outputs {}
+    set ::tuck::graph::_action_counter {}
     if {$::tuck::interp::target ne "" && [interp exists $::tuck::interp::target]} {
         interp delete $::tuck::interp::target
     }
@@ -24,6 +28,7 @@ proc ::tuck::phase::setup {} {
     set ::tuck::interp::target [interp create -safe]
     set ::tuck::interp::rules  [interp create -safe]
     $::tuck::interp::rules alias tuck::rule ::tuck::register_rule
+    ::tuck::ctx::install $::tuck::interp::rules
 }
 
 # Install a rule constructor (named $name) into the shared target interp.

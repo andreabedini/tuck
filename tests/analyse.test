@@ -1,0 +1,89 @@
+package require tcltest
+namespace import ::tcltest::*
+foreach m {config label rules target graph action ctx loader analyse} {
+    source [file join [file dirname [info script]] .. lib $m.tcl]
+}
+
+# A repo whose root TUCK defines a real genrule impl; app depends on lib.
+proc build_repo {} {
+    set root [makeDirectory anrepo[incr ::anc]]
+    file mkdir [file join $root .tuck]
+    makeFile {
+        rules {
+            tuck::rule genrule {
+                attrs {
+                    name {type string  mandatory true}
+                    srcs {type sources mandatory true}
+                    out  {type string  mandatory true}
+                    cmd  {type string  mandatory true}
+                    deps {type deps    mandatory false default {}}
+                }
+                impl {
+                    set out [ctx.declare_output $ctx [ctx.attr $ctx out]]
+                    set ins [ctx.attr $ctx srcs]
+                    foreach d [ctx.attr $ctx deps] {
+                        lappend ins {*}[ctx.dep_outputs $ctx $d]
+                    }
+                    ctx.action $ctx inputs $ins outputs [list $out] cmd [ctx.attr $ctx cmd]
+                }
+            }
+        }
+    } [file join $root TUCK]
+    file mkdir [file join $root lib]
+    makeFile {targets {
+        genrule {name util srcs {u.c} out util.o cmd {cc -c u.c -o util.o}}
+    }} [file join $root lib BUILD]
+    file mkdir [file join $root app]
+    makeFile {targets {
+        genrule {name a srcs {a.c} out a cmd {cc -o a} deps {//lib:util}}
+    }} [file join $root app BUILD]
+    return $root
+}
+
+proc init_repo {root} {
+    ::tuck::reset
+    ::tuck::config::init $root
+    ::tuck::phase::setup
+    ::tuck::phase::load_root_rules
+}
+
+test analyse-builds-actions {analysis produces one action per target} -setup {
+    init_repo [build_repo]
+} -body {
+    ::tuck::phase::analyse {//app:a}
+    dict size $::tuck::graph::actions
+} -result {2}
+
+test analyse-dep-wiring {dep_outputs threads lib's output into app's inputs} -setup {
+    init_repo [build_repo]
+} -body {
+    ::tuck::phase::analyse {//app:a}
+    dict get $::tuck::graph::actions //app:a#0 inputs
+} -result {source:app/a.c declared://lib:util:util.o}
+
+test analyse-target-outputs {declared outputs are recorded per target} -setup {
+    init_repo [build_repo]
+} -body {
+    ::tuck::phase::analyse {//app:a}
+    dict get $::tuck::graph::target_outputs //lib:util
+} -result {declared://lib:util:util.o}
+
+test analyse-no-impl {a target whose rule has no impl errors} -setup {
+    set root [makeDirectory noimplrepo[incr ::anc]]
+    file mkdir [file join $root .tuck]
+    makeFile {
+        rules {
+            tuck::rule data {
+                attrs {name {type string mandatory true}}
+            }
+        }
+    } [file join $root TUCK]
+    file mkdir [file join $root p]
+    makeFile {targets { data {name d} }} [file join $root p BUILD]
+    init_repo $root
+} -body {
+    catch {::tuck::phase::analyse {//p:d}} err
+    string match "tuck: rule data has no impl" $err
+} -result 1
+
+cleanupTests

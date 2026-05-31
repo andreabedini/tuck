@@ -1,6 +1,6 @@
 package require tcltest
 namespace import ::tcltest::*
-foreach m {config label rules target graph loader} {
+foreach m {config label rules target graph action ctx loader} {
     source [file join [file dirname [info script]] .. lib $m.tcl]
 }
 

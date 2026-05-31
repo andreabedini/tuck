@@ -1,7 +1,7 @@
 #!/usr/bin/env tclsh
 namespace eval ::tuck {}
 set ::tuck::_libdir [file join [file dirname [file normalize [info script]]] lib]
-foreach m {config label rules target graph loader} {
+foreach m {config label rules target graph action ctx loader} {
     source [file join $::tuck::_libdir $m.tcl]
 }
 
