@@ -1,0 +1,49 @@
+package require tcltest
+namespace import ::tcltest::*
+
+set ::tuckbin [file normalize [file join [file dirname [info script]] .. tuck.tcl]]
+
+# Build a fixture repo and return its root.
+proc make_repo {} {
+    set root [makeDirectory itrepo]
+    file mkdir [file join $root .tuck]
+    makeFile {
+        rules {
+            tuck::rule genrule {
+                attrs {
+                    name {type string mandatory true}
+                    srcs {type sources mandatory true}
+                    deps {type deps mandatory false default {}}
+                }
+                impl genrule_impl
+            }
+            proc genrule_impl {ctx} {}
+        }
+    } [file join $root TUCK]
+    file mkdir [file join $root app]
+    makeFile {targets { genrule {name a srcs {a.c} deps {//lib:util}} }} \
+        [file join $root app BUILD]
+    file mkdir [file join $root lib]
+    makeFile {targets { genrule {name util srcs {u.c}} }} \
+        [file join $root lib BUILD]
+    return $root
+}
+
+# Run tuck.tcl in $root with given args; return {code stdout}.
+proc run_tuck {root args} {
+    set code [catch {
+        exec [info nameofexecutable] $::tuckbin {*}$args
+    } out]
+    return [list $code $out]
+}
+
+test query-deps {leaves-first dep order} -setup {
+    set root [make_repo]
+} -body {
+    cd $root
+    lassign [run_tuck $root query deps //app:a] code out
+    if {$code != 0} { error "exit $code: $out" }
+    set out
+} -result "//lib:util\n//app:a"
+
+cleanupTests
