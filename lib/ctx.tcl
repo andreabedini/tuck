@@ -2,12 +2,8 @@ namespace eval ::tuck::ctx {}
 
 # Alias the ctx surface into a (rules) interpreter. The single `ctx` command is
 # bound to an erroring stub until analysis curries a real node into it (see
-# ::tuck::phase::analyse). The dotted ctx.* aliases are transitional and removed
-# in a later task.
+# ::tuck::phase::analyse).
 proc ::tuck::ctx::install {interp} {
-    foreach cmd {attr label package declare_output action dep_outputs} {
-        $interp alias ctx.$cmd ::tuck::ctx::$cmd
-    }
     $interp alias ctx ::tuck::ctx::_unbound
 }
 
@@ -51,7 +47,7 @@ proc ::tuck::ctx::attr {ctx key} {
     set rule   [dict get $ctx rule]
     set schema [dict get $::tuck::graph::rules $rule schema]
     if {![dict exists $schema $key]} {
-        error "tuck: ctx.attr: no attribute '$key'"
+        error "tuck: ctx attr: no attribute '$key'"
     }
     set attrs [dict get $ctx attrs]
     if {![dict exists $attrs $key]} {
@@ -95,7 +91,7 @@ proc ::tuck::ctx::declare_output {ctx relpath} {
 # Return the declared output ids of an already-analysed dependency.
 proc ::tuck::ctx::dep_outputs {ctx label} {
     if {![dict exists $::tuck::graph::target_outputs $label]} {
-        error "tuck: ctx.dep_outputs: $label has no analysed outputs"
+        error "tuck: ctx dep_outputs: $label has no analysed outputs"
     }
     return [dict get $::tuck::graph::target_outputs $label]
 }
@@ -103,7 +99,7 @@ proc ::tuck::ctx::dep_outputs {ctx label} {
 # Register a static action node. Named args: inputs outputs cmd ?env?.
 proc ::tuck::ctx::action {ctx args} {
     if {[llength $args] % 2 != 0} {
-        error "tuck: ctx.action: arguments must be key/value pairs"
+        error "tuck: ctx action: arguments must be key/value pairs"
     }
     set spec [dict create env {}]
     foreach {k v} $args {
@@ -111,7 +107,7 @@ proc ::tuck::ctx::action {ctx args} {
     }
     foreach req {inputs outputs cmd} {
         if {![dict exists $spec $req]} {
-            error "tuck: ctx.action: missing $req"
+            error "tuck: ctx action: missing $req"
         }
     }
     return [::tuck::graph::register_action [dict get $ctx label] \

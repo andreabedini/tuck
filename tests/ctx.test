@@ -40,10 +40,10 @@ test attr-scalar {scalar attrs return the raw value} -setup {setup_ctx} -body {
 
 test attr-unknown {unknown attr key errors} -setup {setup_ctx} -body {
     catch {::tuck::ctx::attr [app_node] bogus} err
-    string match "tuck: ctx.attr: no attribute 'bogus'" $err
+    string match "tuck: ctx attr: no attribute 'bogus'" $err
 } -result 1
 
-test label-package {ctx.label and ctx.package} -setup {setup_ctx} -body {
+test label-package {ctx label and ctx package} -setup {setup_ctx} -body {
     list [::tuck::ctx::label [app_node]] [::tuck::ctx::package [app_node]]
 } -result {//app:hello app}
 
@@ -61,10 +61,10 @@ test dep-outputs {returns a dependency's declared outputs} -setup {
 
 test dep-outputs-unanalysed {dep_outputs on an unanalysed label errors} -setup {setup_ctx} -body {
     catch {::tuck::ctx::dep_outputs [app_node] //nope:x} err
-    string match "tuck: ctx.dep_outputs: //nope:x has no analysed outputs" $err
+    string match "tuck: ctx dep_outputs: //nope:x has no analysed outputs" $err
 } -result 1
 
-test action-registers {ctx.action registers a node and returns its id} -setup {setup_ctx} -body {
+test action-registers {ctx action registers a node and returns its id} -setup {setup_ctx} -body {
     set id [::tuck::ctx::action [app_node] inputs {a} outputs {b} cmd {cc}]
     list $id [dict get $::tuck::graph::actions $id inputs] \
              [dict get $::tuck::graph::actions $id env]
@@ -72,7 +72,7 @@ test action-registers {ctx.action registers a node and returns its id} -setup {s
 
 test action-missing-arg {ctx.action requires inputs/outputs/cmd} -setup {setup_ctx} -body {
     catch {::tuck::ctx::action [app_node] inputs {a} outputs {b}} err
-    string match "tuck: ctx.action: missing cmd" $err
+    string match "tuck: ctx action: missing cmd" $err
 } -result 1
 
 test dispatch-forwards {ctx dispatch forwards a subcommand to its accessor} -setup {setup_ctx} -body {
