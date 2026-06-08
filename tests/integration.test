@@ -18,12 +18,12 @@ proc make_repo {} {
                     deps {type deps    mandatory false default {}}
                 }
                 impl {
-                    set out [ctx.declare_output $ctx [ctx.attr $ctx out]]
-                    set ins [ctx.attr $ctx srcs]
-                    foreach d [ctx.attr $ctx deps] {
-                        lappend ins {*}[ctx.dep_outputs $ctx $d]
+                    set out [ctx declare_output [ctx attr out]]
+                    set ins [ctx attr srcs]
+                    foreach d [ctx attr deps] {
+                        lappend ins {*}[ctx dep_outputs $d]
                     }
-                    ctx.action $ctx inputs $ins outputs [list $out] cmd [ctx.attr $ctx cmd]
+                    ctx action inputs $ins outputs [list $out] cmd [ctx attr cmd]
                 }
             }
         }
