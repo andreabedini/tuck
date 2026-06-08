@@ -70,7 +70,7 @@ test action-registers {ctx action registers a node and returns its id} -setup {s
              [dict get $::tuck::graph::actions $id env]
 } -result {//app:hello#0 a {}}
 
-test action-missing-arg {ctx.action requires inputs/outputs/cmd} -setup {setup_ctx} -body {
+test action-missing-arg {ctx action requires inputs/outputs/cmd} -setup {setup_ctx} -body {
     catch {::tuck::ctx::action [app_node] inputs {a} outputs {b}} err
     string match "tuck: ctx action: missing cmd" $err
 } -result 1

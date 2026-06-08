@@ -47,7 +47,7 @@ Source is in `lib/`, one namespace per file:
 | `lib/graph.tcl`  | `::tuck::graph`  | dangling-dep validation, topo-sort (cycle detect) |
 | `lib/loader.tcl` | `::tuck::phase`  | interpreter setup, per-file loading, lazy closure |
 | `lib/action.tcl` | `::tuck::graph`  | action-graph stores (artifacts/actions/target_outputs) + helpers |
-| `lib/ctx.tcl`    | `::tuck::ctx`    | the `ctx.*` surface for rule impls; `install` aliases it into the rules interp |
+| `lib/ctx.tcl`    | `::tuck::ctx`    | the `ctx <subcmd>` command for rule impls; `dispatch` forwards to accessors with the node curried by analysis; `install` aliases `ctx` into the rules interp |
 | `lib/analyse.tcl`| `::tuck::phase`  | analysis driver: leaves-first impl invocation |
 | `tuck.tcl`       | `::tuck::cmd`/`main` | CLI parse + dispatch, top-level error catch |
 
@@ -74,19 +74,25 @@ filesystem.
 - **Target syntax is dict-style**: a constructor takes one brace block treated as a
   *dict of attributes* (pure data, never eval'd as a script). This corrects DESIGN §9's
   Python-like `name = "..."` form, which is not valid TCL.
-- **Rule `impl` is an inline body**, not a proc name: `impl { ...uses $ctx... }`.
-  `register_rule` compiles it into `__tuck_impl_<name> {ctx} <body>` in the rules
-  interp at registration time (so analysis always calls a real named proc). Note this
+- **Rule `impl` is an inline body**, not a proc name: ``impl { ...uses the `ctx` command... }``.
+  `register_rule` compiles it into `__tuck_impl_<name> {} <body>` (no parameters) in the
+  rules interp at registration time (so analysis always calls a real named proc). Note this
   re-enters the rules interp from inside the `tuck::rule` alias — that is intentional
-  and works. A body of `{ helper $ctx }` recovers the named-proc style.
+  and works. The body uses `ctx attr`, `ctx declare_output`, `ctx action`, etc. — the
+  target node is curried into the `ctx` alias by analysis, not passed as an argument.
+  Helper procs defined in the `rules` block call `ctx ...` directly (the alias is global
+  to the rules interp during analysis); they take no `ctx` parameter.
 - **Loading is lazy/transitive**: load the requested package, follow deps to other
   packages until the graph closes. `//...` is the only eager (tree-scanning) path.
 - Loading-phase invariants, all enforced with `tuck:`-prefixed errors: no duplicate
   labels, all deps resolve to known targets, no dependency cycles.
 - `topo_sort` is post-order DFS → **leaves-first** order, and detects cycles.
 - **Analysis is leaves-first**: `analyse` topo-sorts the closure so a dependency's
-  `declare_output`s are recorded before any dependent calls `ctx.dep_outputs`. The
-  `ctx` object passed to an impl *is* the target node. Action ids are per-target
+  `declare_output`s are recorded before any dependent calls `ctx dep_outputs`. Analysis
+  curries the target node into the `ctx` alias (`$rules alias ctx ::tuck::ctx::dispatch $node`)
+  once per target before invoking its impl; `ctx <subcmd>` forwards to the accessor with
+  that node. A single live binding is safe because analysis is strictly sequential and
+  impls never nest. Action ids are per-target
   sequential (`<label>#<n>`); `cmd` is stored verbatim (no `$OUT`/path resolution
   until execution). A non-existent analyse target yields `tuck: no such target: ...`.
 

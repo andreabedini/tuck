@@ -8,7 +8,7 @@
 
 M2 delivers the **analysis phase** end to end and nothing more:
 
-- A `ctx.*` command surface available to rule impls during analysis.
+- A `ctx <subcmd>` command surface available to rule impls during analysis.
 - An analysis driver that visits the target closure leaves-first and invokes each
   target's compiled rule impl.
 - Construction of a **static action graph** — source/declared artifacts and static
@@ -26,32 +26,36 @@ is the worked example and test fixture, not a shipped built-in.
 ## 2. The `ctx` object
 
 `ctx` *is* the M1 target node — the dict `{label rule attrs package deps}`. Analysis
-passes the node to the impl as `$ctx`; every `ctx.*` command takes it as the first
-argument. No new structure is introduced.
+curries the node into a `ctx` alias in the rules interp (one rebind per target) before
+invoking the impl; no argument is threaded. No new structure is introduced.
 
-The compiled impl (from M1, `__tuck_impl_<rule> {ctx} <body>`) is invoked as:
+The compiled impl (`__tuck_impl_<rule> {}` — zero parameters) is invoked as:
 
 ```tcl
-$rulesInterp eval [list __tuck_impl_<rule> $node]
+$rules alias ctx ::tuck::ctx::dispatch $node
+$rulesInterp eval [list __tuck_impl_<rule>]
 ```
+
+> **Note:** the `ctx` command surface was redesigned after initial M2 implementation;
+> see `docs/superpowers/specs/2026-06-08-ctx-ensemble-design.md` for the rationale.
 
 ## 3. Command surface
 
 Internal procs live in `::tuck::ctx::*` (matches DESIGN §8). They are surfaced into
-the rules interpreter under the dotted names from §7.1/§7.3 via aliases, e.g.
-`$rules alias ctx.attr ::tuck::ctx::attr`. The procs run in the root interpreter and
-read/mutate `::tuck::graph::*`.
+the rules interpreter as a single `ctx` command with subcommands, routed through
+`::tuck::ctx::dispatch`. The procs run in the root interpreter and read/mutate
+`::tuck::graph::*`.
 
 | Surface command | Returns / effect |
 |---|---|
-| `ctx.attr $ctx <key>` | Type-resolved value (see §3.1) |
-| `ctx.label $ctx` | `dict get $ctx label` |
-| `ctx.package $ctx` | `dict get $ctx package` |
-| `ctx.declare_output $ctx <relpath>` | Registers a declared artifact, records it under this target's outputs, returns its id |
-| `ctx.action $ctx inputs <ids> outputs <ids> cmd <list> ?env <dict>?` | Registers a static action node, returns its id |
-| `ctx.dep_outputs $ctx <label>` | The declared output ids of an already-analysed dependency |
+| `ctx attr <key>` | Type-resolved value (see §3.1) |
+| `ctx label` | `dict get $node label` |
+| `ctx package` | `dict get $node package` |
+| `ctx declare_output <relpath>` | Registers a declared artifact, records it under this target's outputs, returns its id |
+| `ctx action inputs <ids> outputs <ids> cmd <list> ?env <dict>?` | Registers a static action node, returns its id |
+| `ctx dep_outputs <label>` | The declared output ids of an already-analysed dependency |
 
-### 3.1 `ctx.attr` resolution by schema type
+### 3.1 `ctx attr` resolution by schema type
 
 Resolution is driven by the attr's declared type in the rule schema:
 
@@ -60,11 +64,11 @@ Resolution is driven by the attr's declared type in the rule schema:
   `source:<p>`). Each id is registered in `graph::artifacts`.
 - `dep` → the canonical label (string). `deps` → list of canonical labels.
 - `string` / `int` / `bool` / `list` / `output` → the raw stored value.
-- A key **not in the rule's schema** → error `tuck: ctx.attr: no attribute '<key>'`.
+- A key **not in the rule's schema** → error `tuck: ctx attr: no attribute '<key>'`.
 - A key in the schema but absent from attrs (optional, no default — M1 validation
   only stores provided or defaulted attrs) → empty value (`{}`).
 
-`ctx.dep_outputs $ctx <label>` then maps a dep label to that dependency's declared
+`ctx dep_outputs <label>` then maps a dep label to that dependency's declared
 output artifact ids (looked up in `graph::target_outputs`).
 
 ## 4. Action-graph data structures (DESIGN §6)
@@ -86,7 +90,7 @@ colons inside labels are harmless.
 - `::tuck::graph::actions` — dict: action-id → action node. Insertion order follows
   analysis (leaves-first), which the printer relies on.
 - `::tuck::graph::target_outputs` — dict: label → list of declared output ids;
-  populated by `ctx.declare_output`, read by `ctx.dep_outputs`.
+  populated by `ctx declare_output`, read by `ctx dep_outputs`.
 
 A per-target action counter (cleared by `::tuck::reset`, i.e. once per process —
 the CLI calls `reset` once at startup) generates the `#<n>` suffix.
@@ -100,11 +104,11 @@ the CLI calls `reset` once at startup) generates the `#<n>` suffix.
 3. For each target in order:
    - Fetch its node; look up its rule's compiled impl name (`__tuck_impl_<rule>`).
    - If the rule has no impl (empty), error `tuck: rule <rule> has no impl`.
-   - Invoke `$rulesInterp eval [list <implname> $node]`.
-4. The impl's `ctx.*` calls populate the three stores.
+   - Rebind `$rules alias ctx ::tuck::ctx::dispatch $node`, then invoke `$rulesInterp eval [list <implname>]`.
+4. The impl's `ctx <subcmd>` calls populate the three stores.
 
 Leaves-first ordering guarantees a dependency's outputs are registered before any
-dependent calls `ctx.dep_outputs` on it.
+dependent calls `ctx dep_outputs` on it.
 
 ## 6. Modules
 
@@ -113,8 +117,8 @@ New files:
 ```
 lib/action.tcl   # ::tuck::graph — artifacts/actions/target_outputs stores, id
                  #   helpers, register_source / register_declared / register_action
-lib/ctx.tcl      # ::tuck::ctx::* command procs + ::tuck::ctx::install (aliases
-                 #   the six commands into the rules interp)
+lib/ctx.tcl      # ::tuck::ctx::* accessor procs + dispatch + ::tuck::ctx::install
+                 #   (aliases single ctx command into the rules interp)
 lib/analyse.tcl  # ::tuck::phase::analyse driver
 ```
 
@@ -151,20 +155,22 @@ Multiple inputs/outputs are space-joined on the one line. Actions print in
 prints to stderr and exits non-zero. Specific cases:
 
 - A target whose rule has no impl: `tuck: rule <rule> has no impl`.
-- `ctx.attr` on an unknown key: `tuck: ctx.attr: no attribute '<key>'`.
-- `ctx.dep_outputs` on a label that has not been analysed (not in
-  `target_outputs`): `tuck: ctx.dep_outputs: <label> has no analysed outputs`.
-- `ctx.action` missing a required named arg: `tuck: ctx.action: missing <arg>`.
+- `ctx attr` on an unknown key: `tuck: ctx attr: no attribute '<key>'`.
+- `ctx dep_outputs` on a label that has not been analysed (not in
+  `target_outputs`): `tuck: ctx dep_outputs: <label> has no analysed outputs`.
+- `ctx action` missing a required named arg: `tuck: ctx action: missing <arg>`.
+- Unknown subcommand: `tuck: ctx: unknown subcommand '<x>'`.
+- `ctx` used outside analysis (no node bound): `tuck: ctx: no target bound (used outside analysis)`.
 
 ## 9. Testing (TDD with `tcltest`)
 
 - **action.test** — id helpers; `register_action` produces per-target sequential
   ids; `register_source` / `register_declared` are idempotent and store the right
   artifact dicts.
-- **ctx.test** — `ctx.attr` resolution per type (sources→ids, dep/deps→labels,
-  scalar→raw); `ctx.label` / `ctx.package`; `ctx.declare_output` registers the
-  artifact, returns its id, and feeds `target_outputs`; `ctx.dep_outputs`; error on
-  unknown attr key.
+- **ctx.test** — `ctx attr` resolution per type (sources→ids, dep/deps→labels,
+  scalar→raw); `ctx label` / `ctx package`; `ctx declare_output` registers the
+  artifact, returns its id, and feeds `target_outputs`; `ctx dep_outputs`; error on
+  unknown attr key; unknown-subcommand and out-of-analysis errors.
 - **analyse.test** — fixture repo with a real `genrule` impl and an `app → lib` dep
   edge; assert the registered actions/artifacts and that `dep_outputs` wired `lib`'s
   declared output into `app`'s action inputs; assert the no-impl error.
@@ -175,12 +181,12 @@ The `genrule` impl used in fixtures:
 
 ```tcl
 impl {
-    set out [ctx.declare_output $ctx [ctx.attr $ctx out]]
-    set ins [ctx.attr $ctx srcs]
-    foreach d [ctx.attr $ctx deps] {
-        lappend ins {*}[ctx.dep_outputs $ctx $d]
+    set out [ctx declare_output [ctx attr out]]
+    set ins [ctx attr srcs]
+    foreach d [ctx attr deps] {
+        lappend ins {*}[ctx dep_outputs $d]
     }
-    ctx.action $ctx inputs $ins outputs [list $out] cmd [ctx.attr $ctx cmd]
+    ctx action inputs $ins outputs [list $out] cmd [ctx attr cmd]
 }
 ```
 
