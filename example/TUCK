@@ -1,0 +1,100 @@
+# Repo-global rule definitions for the example C project.
+#
+# Rules are defined only in the root TUCK file (loaded deterministically before
+# any package). Each `tuck::rule` registers a constructor usable in BUILD files;
+# its `impl` body runs during analysis and emits the action graph via `ctx`.
+
+rules {
+    # --- path helpers --------------------------------------------------------
+    #
+    # These run inside the (safe) rules interpreter, where `file` is
+    # unavailable, so they use plain string operations. They are shared by the
+    # rule impls below and take no `ctx` argument.
+
+    # "source:lib/greet/greet.c"  ->  "lib/greet/greet.c"
+    proc src_path {id} {
+        return [regsub {^source:} $id {}]
+    }
+
+    # a source artifact id  ->  "build/<basename without .c>.o"
+    proc obj_path {srcid} {
+        regexp {([^/]+)\.c$} [src_path $srcid] -> base
+        return "build/$base.o"
+    }
+
+    # canonical label "//lib/greet:greet"  ->  "build/libgreet.a"
+    proc lib_path {label} {
+        regexp {:([^:/]+)$} $label -> name
+        return "build/lib$name.a"
+    }
+
+    # --- cc_library ----------------------------------------------------------
+    #
+    # Compile each C source to an object file, then bundle the objects into a
+    # static archive. The archive is the library's single public output, so a
+    # dependent sees exactly one artifact via `ctx dep_outputs`.
+    tuck::rule cc_library {
+        attrs {
+            name  {type string  mandatory true}
+            srcs  {type sources mandatory true}
+            hdrs  {type sources mandatory false default {}}
+            copts {type list    mandatory false default {}}
+        }
+        impl {
+            set copts [ctx attr copts]
+            set hdrs  [ctx attr hdrs]
+            set objs  {}
+            foreach src [ctx attr srcs] {
+                set obj [obj_path $src]
+                ctx action \
+                    inputs  [concat [list $src] $hdrs] \
+                    outputs [list $obj] \
+                    cmd     [concat [list cc] $copts [list -c [src_path $src] -o $obj]]
+                lappend objs $obj
+            }
+            set lib [lib_path [ctx label]]
+            set out [ctx declare_output $lib]
+            ctx action \
+                inputs  $objs \
+                outputs [list $out] \
+                cmd     [concat [list ar rcs $lib] $objs]
+        }
+    }
+
+    # --- cc_binary -----------------------------------------------------------
+    #
+    # Compile each C source, then link the objects together with the static
+    # archive of every dependency into an executable.
+    tuck::rule cc_binary {
+        attrs {
+            name  {type string  mandatory true}
+            srcs  {type sources mandatory true}
+            deps  {type deps    mandatory false default {}}
+            copts {type list    mandatory false default {}}
+        }
+        impl {
+            set copts [ctx attr copts]
+            set objs  {}
+            foreach src [ctx attr srcs] {
+                set obj [obj_path $src]
+                ctx action \
+                    inputs  [list $src] \
+                    outputs [list $obj] \
+                    cmd     [concat [list cc] $copts [list -c [src_path $src] -o $obj]]
+                lappend objs $obj
+            }
+            set libids   {}
+            set libfiles {}
+            foreach d [ctx attr deps] {
+                foreach a [ctx dep_outputs $d] { lappend libids $a }
+                lappend libfiles [lib_path $d]
+            }
+            set bin "build/[ctx attr name]"
+            set out [ctx declare_output $bin]
+            ctx action \
+                inputs  [concat $objs $libids] \
+                outputs [list $out] \
+                cmd     [concat [list cc] $objs $libfiles [list -o $bin]]
+        }
+    }
+}

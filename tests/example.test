@@ -1,0 +1,68 @@
+package require tcltest
+namespace import ::tcltest::*
+
+# Guards the shipped example/ repo: its target and action graphs must keep
+# matching what README.md documents. If the analyze output format changes,
+# this fails and the README needs updating too.
+
+set here    [file dirname [info script]]
+set tuckbin [file normalize [file join $here .. tuck.tcl]]
+set exampledir [file normalize [file join $here .. example]]
+
+# Run tuck.tcl from inside example/; return {code stdout}.
+proc run_example {args} {
+    set code [catch {
+        exec [info nameofexecutable] $::tuckbin {*}$args
+    } out]
+    return [list $code $out]
+}
+
+test example-targets {//... lists both example targets} -setup {
+    set ::savedpwd [pwd]
+    cd $::exampledir
+} -cleanup {
+    cd $::savedpwd
+} -body {
+    lassign [run_example targets //...] code out
+    if {$code != 0} { error "exit $code: $out" }
+    set out
+} -result "//app:hello\n//lib/greet:greet"
+
+test example-query-deps {dependency closure is leaves-first} -setup {
+    set ::savedpwd [pwd]
+    cd $::exampledir
+} -cleanup {
+    cd $::savedpwd
+} -body {
+    lassign [run_example query deps //app:hello] code out
+    if {$code != 0} { error "exit $code: $out" }
+    set out
+} -result "//lib/greet:greet\n//app:hello"
+
+test example-analyze {action graph matches README} -setup {
+    set ::savedpwd [pwd]
+    cd $::exampledir
+} -cleanup {
+    cd $::savedpwd
+} -body {
+    lassign [run_example analyze //app:hello] code out
+    if {$code != 0} { error "exit $code: $out" }
+    set out
+} -result "//lib/greet:greet#0
+  inputs:  source:lib/greet/greet.c source:lib/greet/greet.h
+  outputs: build/greet.o
+  cmd:     cc -c lib/greet/greet.c -o build/greet.o
+//lib/greet:greet#1
+  inputs:  build/greet.o
+  outputs: declared://lib/greet:greet:build/libgreet.a
+  cmd:     ar rcs build/libgreet.a build/greet.o
+//app:hello#0
+  inputs:  source:app/main.c
+  outputs: build/main.o
+  cmd:     cc -Ilib/greet -c app/main.c -o build/main.o
+//app:hello#1
+  inputs:  build/main.o declared://lib/greet:greet:build/libgreet.a
+  outputs: declared://app:hello:build/hello
+  cmd:     cc build/main.o build/libgreet.a -o build/hello"
+
+cleanupTests
