@@ -17,6 +17,7 @@ proc ::tuck::graph::validate {} {
 
 proc ::tuck::graph::_visit {label stateVar resultVar path} {
     variable targets
+    # upvar binds to the caller's accumulators by name. See docs/CODE-TOUR.md §2.
     upvar 1 $stateVar state $resultVar result
     if {[dict exists $state $label]} {
         if {[dict get $state $label] eq "visiting"} {

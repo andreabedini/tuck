@@ -120,3 +120,7 @@ tclsh tests/label.test
 
 Source files live in `lib/` (one namespace per concern); `tuck.tcl` only wires the
 CLI to the phases. Design and implementation notes are under `docs/superpowers/`.
+
+New to the codebase (or to TCL)? Start with [`docs/CODE-TOUR.md`](docs/CODE-TOUR.md),
+a guided walkthrough that follows one command through every file and teaches the TCL
+concepts it relies on.

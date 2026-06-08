@@ -25,6 +25,8 @@ proc ::tuck::phase::analyse {labels} {
         if {$impl eq ""} {
             error "tuck: rule $rule has no impl"
         }
+        # Curry this target's node into `ctx`: every `ctx ...` call in the impl
+        # now runs `dispatch $node ...`. See docs/CODE-TOUR.md §4.2.
         $::tuck::interp::rules alias ctx ::tuck::ctx::dispatch $node
         $::tuck::interp::rules eval [list $impl]
     }

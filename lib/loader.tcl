@@ -25,6 +25,8 @@ proc ::tuck::reset {} {
 
 # Create the shared, persistent target and rules interpreters.
 proc ::tuck::phase::setup {} {
+    # `-safe` strips open/exec/file/package so these children cannot touch disk;
+    # aliases are the only escape hatch. See docs/CODE-TOUR.md §2 and §4.1.
     set ::tuck::interp::target [interp create -safe]
     set ::tuck::interp::rules  [interp create -safe]
     $::tuck::interp::rules alias tuck::rule ::tuck::register_rule
