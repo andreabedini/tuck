@@ -4,7 +4,7 @@ Tuck is an **experimental build system** — a tool that, given a description of
 you want to build and how, figures out which steps need to run and in what order, then
 runs them. Think `make`, but with stronger guarantees.
 
-The project exists to experiment with two ideas:
+The project exists to experiment with three ideas:
 
 ## 1. A two-phase build model
 
