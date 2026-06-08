@@ -75,4 +75,23 @@ test action-missing-arg {ctx.action requires inputs/outputs/cmd} -setup {setup_c
     string match "tuck: ctx.action: missing cmd" $err
 } -result 1
 
+test dispatch-forwards {ctx dispatch forwards a subcommand to its accessor} -setup {setup_ctx} -body {
+    ::tuck::ctx::dispatch [app_node] attr name
+} -result {hello}
+
+test dispatch-unknown {an unknown subcommand errors} -setup {setup_ctx} -body {
+    catch {::tuck::ctx::dispatch [app_node] bogus} err
+    string match "tuck: ctx: unknown subcommand 'bogus'" $err
+} -result 1
+
+test ctx-unbound {ctx errors before analysis binds a node} -setup {
+    set i [interp create]
+    ::tuck::ctx::install $i
+} -body {
+    catch {$i eval {ctx attr name}} err
+    string match "tuck: ctx: no target bound*" $err
+} -cleanup {
+    interp delete $i
+} -result 1
+
 cleanupTests

@@ -25,6 +25,7 @@ proc ::tuck::phase::analyse {labels} {
         if {$impl eq ""} {
             error "tuck: rule $rule has no impl"
         }
+        $::tuck::interp::rules alias ctx ::tuck::ctx::dispatch $node
         $::tuck::interp::rules eval [list $impl $node]
     }
 }

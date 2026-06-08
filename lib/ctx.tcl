@@ -1,9 +1,32 @@
 namespace eval ::tuck::ctx {}
 
-# Alias the ctx.* surface into a (rules) interpreter.
+# Alias the ctx surface into a (rules) interpreter. The single `ctx` command is
+# bound to an erroring stub until analysis curries a real node into it (see
+# ::tuck::phase::analyse). The dotted ctx.* aliases are transitional and removed
+# in a later task.
 proc ::tuck::ctx::install {interp} {
     foreach cmd {attr label package declare_output action dep_outputs} {
         $interp alias ctx.$cmd ::tuck::ctx::$cmd
+    }
+    $interp alias ctx ::tuck::ctx::_unbound
+}
+
+# Bound to `ctx` until analysis curries a target node in; calling it means an
+# impl used ctx outside an analysis invocation.
+proc ::tuck::ctx::_unbound {args} {
+    error "tuck: ctx: no target bound (used outside analysis)"
+}
+
+# Forward `ctx <subcmd> <args...>` to the matching accessor with the curried
+# node as the first argument.
+proc ::tuck::ctx::dispatch {node subcmd args} {
+    switch -- $subcmd {
+        attr - label - package - declare_output - action - dep_outputs {
+            return [::tuck::ctx::$subcmd $node {*}$args]
+        }
+        default {
+            error "tuck: ctx: unknown subcommand '$subcmd'"
+        }
     }
 }
 
