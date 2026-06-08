@@ -1,17 +1,52 @@
 # Tuck
 
-A hermetic, two-phase build system embedded in TCL, inspired by [Buck2](https://buck2.build/).
+Tuck is an **experimental build system** — a tool that, given a description of what
+you want to build and how, figures out which steps need to run and in what order, then
+runs them. Think `make`, but with stronger guarantees.
 
-Tuck evaluates `BUILD` files in isolated child interpreters to produce a **target
-graph** (loading phase), which later analysis turns into an **action graph**, which
-execution materializes. There is no separate DSL — rule constructors, rule
-implementations, and build files are all TCL; the constraint is the interpreter
-boundary, not a grammar.
+The project exists to experiment with two ideas:
 
-> **Status: Milestone 2 (analysis phase).** On top of M1's loading phase, Tuck now
-> runs rule impls via `ctx.*` commands to build a static action graph (artifacts +
-> action nodes). Execution is a future milestone. See [`DESIGN.md`](DESIGN.md) for
-> the full design and milestone roadmap.
+## 1. A two-phase build model
+
+Most build tools mix together *what to build* with *how to build it*. Tuck separates
+them into two distinct phases:
+
+1. **Loading phase** — Tuck reads your build files and constructs a complete *target
+   graph*: all the things you want to produce and how they depend on each other. No
+   compilation or file-writing happens here.
+2. **Analysis phase** — Tuck runs rule logic against the target graph to produce an
+   *action graph*: a precise, static description of every command that needs to run,
+   every input it consumes, and every output it produces.
+
+Only after both phases are complete does execution begin. This separation matters
+because it lets you *inspect and validate* the full build plan before anything runs —
+and it's what makes correctness guarantees (like incrementality and caching) tractable
+to implement.
+
+## 2. Hermetic builds
+
+A build is **hermetic** if it only sees exactly the inputs you declared — no
+accidental reads from the environment, no implicit dependencies on installed tools, no
+surprises when the same build runs on a different machine. Hermetic builds are
+reproducible: the same inputs always produce the same outputs.
+
+Tuck enforces hermeticity through Tcl's *safe interpreter* boundary. Build files and
+rule implementations run in locked-down child interpreters that have no access to the
+filesystem, environment variables, or arbitrary commands. The only things they can do
+are the narrow operations Tuck explicitly allows.
+
+## 3. A minimal, uniform DSL
+
+Instead of inventing a grammar, Tuck reuses Tcl syntax for everything: rule
+definitions, rule implementations, and build files. The constraint is the interpreter
+boundary, not a grammar. This keeps the language surface small and familiar to anyone
+who already knows Tcl, while still allowing rule authors to write expressive logic.
+
+---
+
+> **Status: Milestone 2 (analysis phase).** The loading and analysis phases are
+> implemented. Execution is the next milestone. See [`DESIGN.md`](DESIGN.md) for the
+> full design and roadmap.
 
 ## Requirements
 
@@ -27,8 +62,7 @@ No external packages — Tuck uses only the Tcl core and the built-in `tcltest`.
 - **Label** — the canonical identity of a target, `//pkg:name`. Relative `:name`
   resolves within the current package; `//pkg` is shorthand for `//pkg:<basename>`.
 - **Rules** — defined once in the root `TUCK` file and shared repo-wide. A rule has a
-  name (its constructor command), a typed attr schema, and an impl proc (used in a
-  later milestone).
+  name (its constructor command), a typed attr schema, and an impl proc.
 
 ## Repository layout
 
@@ -55,16 +89,11 @@ rules {
             deps { type deps    mandatory false default {} }
         }
         impl {
-            # invoked during the analysis phase (a later milestone),
-            # with an implicit `ctx`
+            # invoked during analysis, with an implicit `ctx`
         }
     }
 }
 ```
-
-The `impl` is written inline as a script body taking an implicit `ctx`; Tuck
-compiles it into a named proc behind the scenes. Helper procs can be defined
-elsewhere in the `rules` block and called from the body.
 
 Targets are declared in each package's `BUILD` using dict-style constructors:
 
@@ -100,10 +129,6 @@ tclsh tuck.tcl analyze //tools/hello:hello
 tclsh tuck.tcl query actions //tools/hello:hello
 ```
 
-`targets` and `query deps` load only the packages they need: loading follows
-dependency edges transitively and stops when the graph closes (`//...` is the one
-exception — it scans the tree).
-
 ## Development
 
 Tuck is built test-first with `tcltest`. Run the full suite:
@@ -121,6 +146,6 @@ tclsh tests/label.test
 Source files live in `lib/` (one namespace per concern); `tuck.tcl` only wires the
 CLI to the phases. Design and implementation notes are under `docs/superpowers/`.
 
-New to the codebase (or to TCL)? Start with [`docs/CODE-TOUR.md`](docs/CODE-TOUR.md),
-a guided walkthrough that follows one command through every file and teaches the TCL
+New to the codebase (or to Tcl)? Start with [`docs/CODE-TOUR.md`](docs/CODE-TOUR.md),
+a guided walkthrough that follows one command through every file and teaches the Tcl
 concepts it relies on.
