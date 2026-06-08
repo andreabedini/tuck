@@ -52,18 +52,19 @@ proc ::tuck::validate_attrs {rule schema attrs} {
 # Register a rule: store its schema, compile its inline impl body into a named
 # proc in the rules interp, and install its constructor.
 #
-# The impl is written inline as a script body taking an implicit `ctx`:
-#     tuck::rule genrule { attrs {...} impl { ...uses $ctx... } }
-# It is compiled to proc __tuck_impl_<name> {ctx} <body> in the rules interp,
-# so analysis always invokes a real named proc (good stack traces) while the
-# author writes the ergonomic inline form. Helpers may be defined separately in
-# the rules block and called from the body.
+# The impl is written inline as a script body that uses the `ctx` command:
+#     tuck::rule genrule { attrs {...} impl { ...uses ctx attr/action/... } }
+# It is compiled to proc __tuck_impl_<name> {} <body> in the rules interp, so
+# analysis always invokes a real named proc (good stack traces) while the author
+# writes the ergonomic inline form. The target node is curried into the `ctx`
+# alias by analysis, not passed as an argument. Helpers may be defined separately
+# in the rules block and called from the body (they call `ctx ...` directly).
 proc ::tuck::register_rule {name body} {
     set schema [dict get $body attrs]
     set impl ""
     if {[dict exists $body impl]} {
         set impl __tuck_impl_$name
-        $::tuck::interp::rules eval [list proc $impl {ctx} [dict get $body impl]]
+        $::tuck::interp::rules eval [list proc $impl {} [dict get $body impl]]
     }
     dict set ::tuck::graph::rules $name [dict create schema $schema impl $impl]
     ::tuck::_install_ctor $name

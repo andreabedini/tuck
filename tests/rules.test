@@ -52,19 +52,19 @@ test register-rule {stores schema and the compiled impl proc name} -setup {
     interp delete $::tuck::interp::rules
 } -result {schema {name {type string mandatory true}} impl __tuck_impl_genrule}
 
-test inline-impl {impl body is compiled into a callable proc in the rules interp} -setup {
+test inline-impl {impl body is compiled into a zero-arg callable proc in the rules interp} -setup {
     rules_setup
 } -body {
     ::tuck::register_rule genrule {
         attrs {name {type string mandatory true}}
-        impl { set ::result "ran with $ctx" }
+        impl { set ::result "ran with no args" }
     }
     set impl [dict get $::tuck::graph::rules genrule impl]
-    $::tuck::interp::rules eval [list $impl CTX123]
+    $::tuck::interp::rules eval [list $impl]
     list $impl [$::tuck::interp::rules eval {set ::result}]
 } -cleanup {
     interp delete $::tuck::interp::rules
-} -result {__tuck_impl_genrule {ran with CTX123}}
+} -result {__tuck_impl_genrule {ran with no args}}
 
 test no-impl {a rule without an impl stores an empty impl} -setup {
     rules_setup
