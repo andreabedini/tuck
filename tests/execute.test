@@ -1,0 +1,83 @@
+package require tcltest
+namespace import ::tcltest::*
+foreach m {config action sandbox execute} {
+    source [file join [file dirname [info script]] .. lib $m.tcl]
+}
+
+testConstraint posix [expr {$tcl_platform(platform) eq "unix"}]
+
+# A fresh repo root with empty graph stores. The graph is built directly through
+# the action.tcl API, so these tests do not depend on loading or analysis.
+proc fresh {} {
+    set root [file normalize [makeDirectory exrepo[incr ::exc]]]
+    set ::tuck::config::root $root
+    foreach v {artifacts actions target_outputs _action_counter producers} {
+        set ::tuck::graph::$v {}
+    }
+    return $root
+}
+
+proc put {rel content} {
+    set p [file join $::tuck::config::root $rel]
+    file mkdir [file dirname $p]
+    set f [open $p w]
+    puts -nonewline $f $content
+    close $f
+}
+
+proc slurp {rel} {
+    set f [open [file join $::tuck::config::root $rel] r]
+    set d [read $f]
+    close $f
+    return $d
+}
+
+# //lib:u copies lib/u.txt to u.txt; //app:a upper-cases that into a.txt.
+# Returns the id of a.txt.
+proc chain {} {
+    put lib/u.txt hello
+    set src [::tuck::graph::register_source lib/u.txt]
+    set u [::tuck::graph::register_declared //lib:u u.txt]
+    ::tuck::graph::register_action //lib:u [list $src] [list $u] \
+        [list sh -c "cp lib/u.txt [::tuck::graph::exec_path $u]"] {}
+    set a [::tuck::graph::register_declared //app:a a.txt]
+    ::tuck::graph::register_action //app:a [list $u] [list $a] \
+        [list sh -c "tr a-z A-Z < [::tuck::graph::exec_path $u] > [::tuck::graph::exec_path $a]"] {}
+    return $a
+}
+
+test plan-order {needed actions come leaves-first} -setup fresh -body {
+    ::tuck::phase::plan_actions [list [chain]]
+} -result {//lib:u#0 //app:a#0}
+
+test plan-only-needed {actions not reachable from the request are left out} -setup fresh -body {
+    set a [chain]
+    set x [::tuck::graph::register_declared //other:x x]
+    ::tuck::graph::register_action //other:x {} [list $x] {true} {}
+    ::tuck::phase::plan_actions [list $a]
+} -result {//lib:u#0 //app:a#0}
+
+test plan-missing-source {a source input missing on disk is an error} -setup fresh -body {
+    set s [::tuck::graph::register_source nope.c]
+    set o [::tuck::graph::register_declared //p:t o]
+    ::tuck::graph::register_action //p:t [list $s] [list $o] {true} {}
+    catch {::tuck::phase::plan_actions [list $o]} err
+    set err
+} -result {tuck: missing source file nope.c}
+
+test plan-no-producer {a declared artifact nobody produces is an error} -setup fresh -body {
+    set o [::tuck::graph::register_declared //p:t o]
+    catch {::tuck::phase::plan_actions [list $o]} err
+    set err
+} -result {tuck: no action produces declared://p:t:o}
+
+test plan-cycle {a cycle between actions is reported} -setup fresh -body {
+    set x [::tuck::graph::register_declared //p:t x]
+    set y [::tuck::graph::register_declared //p:t y]
+    ::tuck::graph::register_action //p:t [list $x] [list $y] {true} {}
+    ::tuck::graph::register_action //p:t [list $y] [list $x] {true} {}
+    catch {::tuck::phase::plan_actions [list $y]} err
+    set err
+} -result {tuck: action cycle: //p:t#0 -> //p:t#1 -> //p:t#0}
+
+cleanupTests
