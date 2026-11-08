@@ -6,8 +6,9 @@ Guidance for working in the Tuck repository.
 
 Tuck is a hermetic, two-phase build system embedded in TCL, inspired by Buck2. The
 authoritative design is [`DESIGN.md`](DESIGN.md); the per-milestone spec and plan are
-under `docs/superpowers/`. **Milestones 1 (loading phase) and 2 (analysis phase) are
-implemented; execution is the next milestone.**
+under `docs/superpowers/`. **Milestones 1 (loading), 2 (analysis) and 3 (execution,
+single-threaded, pure-Tcl directory sandbox) are implemented; dynamic actions (M4) are
+next.**
 
 ## Toolchain
 
@@ -49,6 +50,8 @@ Source is in `lib/`, one namespace per file:
 | `lib/action.tcl` | `::tuck::graph`  | action-graph stores (artifacts/actions/target_outputs) + helpers |
 | `lib/ctx.tcl`    | `::tuck::ctx`    | the `ctx <subcmd>` command for rule impls; `dispatch` forwards to accessors with the node curried by analysis; `install` aliases `ctx` into the rules interp |
 | `lib/analyse.tcl`| `::tuck::phase`  | analysis driver: leaves-first impl invocation |
+| `lib/sandbox.tcl`| `::tuck::sandbox`| run one action in a fresh directory: stage declared inputs as symlinks, clear the env, collect outputs |
+| `lib/execute.tcl`| `::tuck::phase`  | execution driver: plan needed actions leaves-first, staleness via `tuck-out/.db`, run stale ones |
 | `tuck.tcl`       | `::tuck::cmd`/`main` | CLI parse + dispatch, top-level error catch |
 
 ### Interpreter model (the core of hermeticity)
@@ -95,6 +98,21 @@ filesystem.
   impls never nest. Action ids are per-target
   sequential (`<label>#<n>`); `cmd` is stored verbatim (no `$OUT`/path resolution
   until execution). A non-existent analyse target yields `tuck: no such target: ...`.
+
+- **Execution (M3)**: every artifact has an *exec path* relative to the repo root:
+  sources keep their path, declared outputs go to `tuck-out/<pkg>/__<name>__/<rel>`
+  (`::tuck::graph::exec_path`, exposed to impls as `ctx path`). Commands name files by
+  exec path; there is no `$OUT`/`$SRCS` substitution. `ctx declare_output <rel> -private`
+  registers an artifact without publishing it to `dep_outputs`. `ctx action` rejects
+  unknown artifacts, outputs owned by another target, a second producer for an
+  artifact (`::tuck::graph::producers`), and `cmd` words Tcl `exec` would read as
+  redirections (`>x`, `2>@1`, `<x`, `|`, trailing `&`) — shell features go in `sh -c`.
+- **The sandbox changes process-wide state**: `::tuck::sandbox::run` `cd`s into the
+  sandbox and replaces `::env` for the duration of the `exec`, restoring both in a
+  `finally`. Safe only because execution is single-threaded; M6 must change this.
+  Never `array unset ::env` (it drops the env traces) — unset elements one by one.
+- Toolchain hermeticity is the user's job (as in Buck2): the sandbox passes the host
+  `PATH` through.
 
 ## Gotchas
 

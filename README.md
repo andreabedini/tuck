@@ -35,6 +35,12 @@ rule implementations run in locked-down child interpreters that have no access t
 filesystem, environment variables, or arbitrary commands. The only things they can do
 are the narrow operations Tuck explicitly allows.
 
+The commands a build runs are sandboxed too. Each action runs in its own directory
+that contains only the files it declared as inputs, with an almost empty environment,
+so a command that quietly reads an undeclared file fails instead of working by
+accident. The sandbox is a plain directory, not a container: the toolchain (`cc`,
+`ar`, …) comes from the host `PATH`, and keeping it pinned is up to you, as in Buck2.
+
 ## 3. A minimal, uniform DSL
 
 Instead of inventing a grammar, Tuck reuses Tcl syntax for everything: rule
@@ -44,8 +50,8 @@ who already knows Tcl, while still allowing rule authors to write expressive log
 
 ---
 
-> **Status: Milestone 2 (analysis phase).** The loading and analysis phases are
-> implemented. Execution is the next milestone. See [`DESIGN.md`](DESIGN.md) for the
+> **Status: Milestone 3 (execution phase).** Loading, analysis and single-threaded
+> execution are implemented. See [`DESIGN.md`](DESIGN.md) for the
 > full design and roadmap.
 
 ## Requirements
@@ -127,7 +133,14 @@ tclsh tuck.tcl analyze //tools/hello:hello
 
 # Print just one target's actions
 tclsh tuck.tcl query actions //tools/hello:hello
+
+# Build a target: run its stale actions, print its output paths
+tclsh tuck.tcl build //tools/hello:hello
 ```
+
+Build outputs go to `tuck-out/<package>/__<target>__/` at the repo root. A second
+`build` with nothing changed runs nothing. Set `TUCK_KEEP_SANDBOX=1` to keep a failed
+action's sandbox directory for inspection.
 
 ## Development
 
