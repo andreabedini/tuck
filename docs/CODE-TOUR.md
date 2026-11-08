@@ -1,17 +1,17 @@
 # Tuck — a code tour for people who don't know TCL
 
 Tuck is written in TCL, a language most developers today have never used. The good
-news: the codebase is small (~650 lines) and every file has one job. This guide walks
+news: the codebase is small (~1000 lines) and every file has one job. This guide walks
 through it by **following a single command** —
 
 ```sh
 tclsh tuck.tcl analyze //tools/hello:hello
 ```
 
-— from the moment you press Enter to the moment Tuck prints a build plan. That one path
-touches every source file in roughly the order it runs, so by the end you will have
-seen the whole system. Along the way we explain the TCL you need, and only the TCL you
-need.
+— from the moment you press Enter to the moment Tuck prints a build plan, and then
+follows `tuck build`, which goes one step further and runs that plan. Those two paths
+touch every source file in roughly the order it runs, so by the end you will have seen
+the whole system. Along the way we explain the TCL you need, and only the TCL you need.
 
 If you want the *design rationale* (why two phases, why hermetic), read
 [`DESIGN.md`](../DESIGN.md). This guide is about reading the *code*.
@@ -29,7 +29,8 @@ Two ideas explain almost everything in Tuck.
 2. **Analysis.** Walk that graph and produce an *action graph* — the concrete
    artifacts (files) and actions (commands) needed to build a target. This is what
    `analyze` prints.
-3. **Execution.** Actually run the actions. (Not implemented yet — a future milestone.)
+3. **Execution.** Run the actions that are out of date, so their output files exist on
+   disk. This is what `build` does.
 
 **Hermeticity by isolation.** A build system must be reproducible, so `BUILD` files and
 rule code are *not allowed to do whatever they want* — no reading random files, no
@@ -37,6 +38,12 @@ shelling out. Tuck enforces this by running that untrusted code inside **sandbox
 child interpreters** that physically cannot touch the filesystem. The only way out of
 the sandbox is a short list of explicit bridges (`alias`es). We explain interpreters in
 §2 — they are the single most important TCL concept in this codebase.
+
+The commands a build runs are isolated too, but differently. A compiler is a real
+program, not TCL, so a safe interpreter can't contain it. Instead each action runs in
+its own scratch **directory** holding only the files it declared as inputs. We'll keep
+the two apart by calling them the *interpreter sandbox* (for rule code) and the
+*directory sandbox* (for commands); §4.3 puts them side by side.
 
 A third idea: **TCL is the language.** There is no separate build-file grammar. `BUILD`
 files, rule definitions, and rule implementations are all just TCL evaluated in those
@@ -164,6 +171,26 @@ the *current target* into rule code without the rule author passing it — that'
 *You'll see this in:* `loader.tcl` (creates the interps and aliases), `analyse.tcl` and
 `ctx.tcl` (the currying trick).
 
+### Running programs: `exec`, `::env`, `cd`, and `try`/`finally`
+
+Only the root interpreter runs programs, and only during execution. Four pieces of TCL
+are involved:
+
+- `exec cmd arg arg ...` runs a program and returns its output, raising an error if it
+  exits non-zero. Its catch: `exec` reads some words as **redirections**, not arguments
+  — `>file`, `<file`, `2>@1`, `|`, a final `&`. That's why Tuck rejects such words in an
+  action's command and asks for `sh -c {...}` instead, where the whole shell script is
+  one word.
+- `::env` is a magic array mirroring the process environment: setting `::env(FOO)`
+  sets the variable for every program `exec` starts. Never `array unset ::env` — that
+  deletes the array's link to the real environment; unset its elements one by one.
+- `cd dir` changes the working directory of the *whole process*.
+- `try { ... } finally { ... }` runs the `finally` block whether or not the body raised
+  an error, like `try`/`finally` elsewhere. Tuck uses it to put `::env` and the working
+  directory back after running a command.
+
+*You'll see this in:* `sandbox.tcl`.
+
 ---
 
 ## 3. The walkthrough — following `analyze //tools/hello:hello`
@@ -176,7 +203,7 @@ This is the only file the shell runs directly, and the only place the CLI is wir
 the phases. The top sources every `lib/` file into the root interpreter:
 
 ```tcl
-foreach m {config label rules target graph action ctx analyse loader} {
+foreach m {config label rules target graph action ctx analyse loader sandbox execute} {
     source [file join $::tuck::_libdir $m.tcl]
 }
 ```
@@ -194,6 +221,7 @@ proc ::tuck::main {argv} {
     switch -- $cmd {
         targets { ::tuck::cmd::targets [lindex $argv 1] }
         analyze { ::tuck::cmd::analyze [lindex $argv 1] }
+        build   { ::tuck::cmd::build   [lindex $argv 1] }
         query   { ... }
         default { error "tuck: unknown command: $cmd" }
     }
@@ -206,8 +234,8 @@ top-level error trap: any `error` raised anywhere bubbles up here, prints to std
 exits non-zero. (Note the `tuck:` prefix convention on error messages — every
 intentional failure in the codebase uses it.)
 
-The rest of `tuck.tcl` is the other CLI subcommands (`targets`, `query deps`, `query
-actions`) and their print helpers. They are pure orchestration; all real logic lives in
+The rest of `tuck.tcl` is the other CLI subcommands (`targets`, `build`, `query deps`,
+`query actions`) and their print helpers. They are pure orchestration; all real logic lives in
 `lib/`.
 
 ### `config.tcl` — finding the repo root
@@ -438,7 +466,7 @@ forwards to the matching accessor:
 ```tcl
 proc ::tuck::ctx::dispatch {node subcmd args} {
     switch -- $subcmd {
-        attr - label - package - declare_output - action - dep_outputs {
+        attr - label - package - declare_output - action - dep_outputs - path {
             return [::tuck::ctx::$subcmd $node {*}$args]
         }
         default { error "tuck: ctx: unknown subcommand '$subcmd'" }
@@ -454,29 +482,151 @@ The accessors:
 - `ctx attr key` — read an attribute, **type-resolved**: a `sources` attr comes back as
   registered source-artifact ids, `dep`/`deps` come back canonicalized.
 - `ctx label` / `ctx package` — identity of the current target.
-- `ctx declare_output relpath` — register a file this target will produce; records it in
-  `target_outputs` and returns its artifact id.
+- `ctx declare_output relpath ?-private?` — register a file this target will produce
+  and return its artifact id. Unless `-private`, it is also recorded in
+  `target_outputs`, which is what dependents see. Intermediates like object files are
+  private.
 - `ctx dep_outputs label` — the declared outputs of an *already-analysed* dependency.
   (Leaves-first ordering is what guarantees they exist.)
-- `ctx action ...` — register an action (a command with inputs, outputs, env).
+- `ctx path id` — where an artifact lives on disk, relative to the repo root (its
+  *exec path*). Rules build command lines from it.
+- `ctx action ...` — register an action (a command with inputs, outputs, env). It
+  checks that every input and output is a known artifact, that the outputs belong to
+  this target, and that the command has no `exec` redirection words (§2).
 
 Before any target is bound, `ctx` is aliased to `_unbound`, which errors — so calling
 `ctx` outside analysis fails loudly instead of silently misbehaving.
 
-`action.tcl` is the storage layer the accessors write into: four namespace dicts —
-`artifacts`, `actions`, `target_outputs`, and a per-target `_action_counter`. It mints
-stable ids (`source:<path>`, `declared:<label>:<path>`, and per-target sequential action
-ids `<label>#<n>`) and stores each artifact/action as a dict. Action `cmd`s are stored
-**verbatim** — no path substitution happens until execution (a later milestone).
+`action.tcl` is the storage layer the accessors write into: five namespace dicts —
+`artifacts`, `actions`, `target_outputs`, `producers` (which action makes each
+artifact; a second producer for the same artifact is an error), and a per-target
+`_action_counter`. It mints stable ids (`source:<path>`, `declared:<label>:<path>`, and
+per-target sequential action ids `<label>#<n>`) and stores each artifact/action as a
+dict.
+
+It also owns `exec_path`, the function behind `ctx path`. A source file's exec path is
+just its path in the repo; a declared artifact lives under `tuck-out/`:
+
+```tcl
+proc ::tuck::graph::exec_path {id} {
+    # ...error if $id is unknown...
+    set a [dict get $::tuck::graph::artifacts $id]
+    if {[dict get $a type] eq "source"} { return [dict get $a path] }
+    regexp {^//(.*):([^:]+)$} [dict get $a target] -> pkg name
+    set base [expr {$pkg eq "" ? "tuck-out" : "tuck-out/$pkg"}]
+    return "$base/__${name}__/[dict get $a relpath]"
+}
+```
+
+So `declared://lib/greet:greet:build/libgreet.a` lives at
+`tuck-out/lib/greet/__greet__/build/libgreet.a`. The `__name__` segment keeps two
+targets in one package from clashing. This is pure string work, which is why it's safe
+to hand to rule code. Action `cmd`s are stored **verbatim**; rules put real paths in
+them with `ctx path`, so nothing is substituted later.
 
 When `analyse` finishes, `::tuck::graph::actions` and `::tuck::graph::artifacts`
 together are the **action graph**, and `tuck.tcl` prints it. Done.
 
 ---
 
-## 4. The two tricky mechanisms
+## 3b. Continuing to `build //tools/hello:hello`
 
-Everything above is straightforward once you accept §2. Two mechanisms deserve a second
+`build` does everything `analyze` does, then runs the plan:
+
+```tcl
+proc ::tuck::cmd::build {label} {
+    set canon [::tuck::util::canon $label ""]
+    ::tuck::phase::analyse [list $canon]                      ;# as above
+    set outs [dict get $::tuck::graph::target_outputs $canon]
+    ::tuck::phase::execute $outs ::tuck::cmd::_report         ;# run what's needed
+    foreach o $outs { puts [::tuck::graph::exec_path $o] }    ;# say where they are
+}
+```
+
+The goal is the target's public outputs. `::tuck::cmd::_report` is a *callback*: the
+execution phase calls it with `run <id>`, `skip <id>`, or `output <id> <text>`, and the
+CLI decides how to print. The phase itself never prints.
+
+### `execute.tcl` — what to run, and in what order
+
+`execute` works backwards from the artifacts you asked for. `plan_actions` walks from
+each artifact to the action that produces it (via `producers`), then to *that*
+action's inputs, and so on. It's the same post-order, three-color DFS as `topo_sort` in
+`graph.tcl`, only over actions instead of targets, so the result is again leaves-first
+and cycles are caught. Along the way it fails early if a source file is missing on disk
+or a declared artifact has no producer.
+
+Then, for each planned action, it decides whether the action is **stale**:
+
+```tcl
+foreach act [plan_actions $artifact_ids] {
+    set a [dict get $::tuck::graph::actions $act]
+    set dirty [_stale $db $a]
+    # ...also dirty if any input was rebuilt earlier in this same run...
+    if {!$dirty} { _report $report skip $act; continue }
+    _report $report run $act
+    set out [::tuck::sandbox::run $act $::tuck::config::root \
+        [_paths [dict get $a inputs]] [_paths [dict get $a outputs]] \
+        [dict get $a cmd] [dict get $a env]]
+    # ...report $out, then record this run in $db and save it...
+}
+```
+
+`$db` is the **action database**, a dict saved as plain text in `tuck-out/.db`. For
+each action that ran, it remembers the command and environment, and the modification
+time and size of every input. `_stale` says an action must run if an output is missing,
+it has never run, its command changed, or any input's time or size changed. Otherwise
+it's skipped, which is why a second `build` with nothing edited prints only `skip`
+lines.
+
+Note that `_paths` turns artifact ids into exec paths before calling the sandbox: the
+sandbox knows nothing about artifacts or the graph, only files.
+
+### `sandbox.tcl` — running one command in a clean directory
+
+`::tuck::sandbox::run` takes one action's command, its input and output paths, and the
+repo root, and runs the command where it can see only its inputs:
+
+1. **Make a fresh directory**, `tuck-out/sandbox/<n>/`.
+2. **Stage the inputs.** For each input path, create a symbolic link at the same
+   relative path inside the sandbox, pointing at the real file. Nothing else from the
+   repo is there, so a command that reads a file it didn't declare simply doesn't find
+   it.
+3. **Swap the environment and directory, run, and swap back** (the TCL from §2):
+
+   ```tcl
+   set saved [array get ::env]
+   set savedpwd [pwd]
+   try {
+       _setenv $clean            ;# PATH from the host, private HOME/TMPDIR, LANG=C...
+       cd $dir
+       set code [catch {exec {*}$cmd 2>@1} out opts]
+   } finally {
+       cd $savedpwd
+       _setenv $saved
+   }
+   ```
+
+   `{*}$cmd` expands the command list into separate words, and `2>@1` folds stderr into
+   the captured output. `catch` turns a failing command into a code instead of an
+   error, so the `finally` and the error message both stay under Tuck's control.
+4. **Check and collect.** A non-zero exit becomes `tuck: action <id> failed (exit N)`
+   followed by the command's output. Otherwise every declared output must exist in the
+   sandbox; each is moved to its exec path under `tuck-out/`.
+5. **Clean up** the sandbox directory, unless `TUCK_KEEP_SANDBOX=1` is set and the
+   action failed, in which case it's kept for you to inspect.
+
+Because exec paths are relative to the repo root, and the sandbox mirrors the repo's
+layout for the files it contains, the same command line works in both places.
+
+The `cd` and `::env` changes affect the whole process. That's fine here because Tuck
+runs one action at a time. Parallel execution will need another way to do this.
+
+---
+
+## 4. The tricky mechanisms
+
+Everything above is straightforward once you accept §2. Three things deserve a second
 look because they're the cleverest — and least obvious — parts of the design.
 
 ### 4.1 The three-interpreter model
@@ -567,6 +717,25 @@ target's analysis.)
 That pairing — *compile the convenient inline form into a real proc, then feed it
 context through a curried alias* — is the single most distinctive trick in Tuck. Once it
 clicks, the rest of the analysis phase is just bookkeeping.
+
+### 4.3 Two sandboxes, two jobs
+
+"Sandbox" means two different things in Tuck, and they guard against different
+mistakes:
+
+| | Interpreter sandbox | Directory sandbox |
+|---|---|---|
+| Contains | `BUILD` files, rule definitions, rule impls (TCL) | each action's command (any program) |
+| Built from | `interp create -safe` plus a few aliases | a fresh directory of symlinks, a cleared `::env` |
+| Stops | rule code reading files or running programs at all | a command reading files it didn't declare as inputs |
+| Lives in | `loader.tcl`, `analyse.tcl`, `ctx.tcl` | `sandbox.tcl` |
+
+The interpreter sandbox is airtight: the dangerous commands don't exist. The directory
+sandbox isn't. A command can still read an absolute path like `/usr/include` or use the
+network, and the compiler itself comes from the host `PATH`. What it reliably catches is
+the common bug, a build step quietly depending on a file nobody declared, which would
+otherwise work on your machine and break somewhere else. Stronger isolation (Linux
+namespaces) could later replace the directory sandbox behind the same `run` interface.
 
 ---
 
