@@ -368,7 +368,7 @@ tuck query rdeps //lib:util
 |---|-------|
 | M1 | Repo root detection, BUILD loading, target graph, topo-sort, label resolution |
 | M2 | Analysis phase, static action graph, `genrule` built-in rule |
-| M3 | Execution phase, single-threaded, mtime staleness check |
+| M3 | Execution phase, single-threaded, mtime staleness check, pure-Tcl directory sandbox (see `docs/superpowers/specs/2026-11-08-tuck-m3-design.md`) |
 | M4 | Dynamic actions and thunks |
 | M5 | Content-hash caching, output base isolation |
 | M6 | Parallel execution (coroutine-based or thread-based) |
