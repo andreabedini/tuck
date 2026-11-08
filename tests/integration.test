@@ -114,4 +114,15 @@ test query-actions {query actions prints only the target's actions} -setup {
   outputs: declared://app:a:a
   cmd:     cc -o a"
 
+test targets-skip-tuck-out {//... does not scan tuck-out/} -setup {
+    set root [make_repo]
+    file mkdir [file join $root tuck-out junk]
+    makeFile {this is not tcl {} [} [file join $root tuck-out junk BUILD]
+} -body {
+    cd $root
+    lassign [run_tuck $root targets //...] code out
+    if {$code != 0} { error "exit $code: $out" }
+    set out
+} -result "//app:a\n//lib:util"
+
 cleanupTests

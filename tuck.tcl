@@ -62,7 +62,7 @@ proc ::tuck::cmd::_find_builds {dir} {
         lappend found [file join $dir BUILD]
     }
     foreach sub [glob -nocomplain -types d -directory $dir *] {
-        if {[file tail $sub] eq ".tuck"} continue
+        if {[file tail $sub] in {.tuck tuck-out}} continue
         lappend found {*}[::tuck::cmd::_find_builds $sub]
     }
     return $found
