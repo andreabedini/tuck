@@ -17,13 +17,18 @@ proc ::tuck::ctx::_unbound {args} {
 # node as the first argument.
 proc ::tuck::ctx::dispatch {node subcmd args} {
     switch -- $subcmd {
-        attr - label - package - declare_output - action - dep_outputs {
+        attr - label - package - declare_output - action - dep_outputs - path {
             return [::tuck::ctx::$subcmd $node {*}$args]
         }
         default {
             error "tuck: ctx: unknown subcommand '$subcmd'"
         }
     }
+}
+
+# Exec path of an artifact, for building command lines.
+proc ::tuck::ctx::path {ctx id} {
+    return [::tuck::graph::exec_path $id]
 }
 
 proc ::tuck::ctx::label {ctx} {

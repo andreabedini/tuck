@@ -94,4 +94,9 @@ test ctx-unbound {ctx errors before analysis binds a node} -setup {
     interp delete $i
 } -result 1
 
+test ctx-path {ctx path returns an artifact's exec path} -setup {setup_ctx} -body {
+    set out [::tuck::ctx::declare_output [app_node] build/hello]
+    ::tuck::ctx::dispatch [app_node] path $out
+} -result {tuck-out/app/__hello__/build/hello}
+
 cleanupTests
