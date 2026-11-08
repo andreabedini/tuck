@@ -1,7 +1,7 @@
 #!/usr/bin/env tclsh
 namespace eval ::tuck {}
 set ::tuck::_libdir [file join [file dirname [file normalize [info script]]] lib]
-foreach m {config label rules target graph action ctx analyse loader} {
+foreach m {config label rules target graph action ctx analyse loader sandbox execute} {
     source [file join $::tuck::_libdir $m.tcl]
 }
 
@@ -42,6 +42,25 @@ proc ::tuck::cmd::query_actions {label} {
         if {[dict get $::tuck::graph::actions $id target] eq $canon} {
             ::tuck::cmd::_print_action $id
         }
+    }
+}
+
+proc ::tuck::cmd::_report {event id {text {}}} {
+    if {$event eq "output"} {
+        puts $text
+    } else {
+        puts "[format %-4s $event] $id"
+    }
+}
+
+# Analyse the target's closure, then build its published outputs.
+proc ::tuck::cmd::build {label} {
+    set canon [::tuck::util::canon $label ""]
+    ::tuck::phase::analyse [list $canon]
+    set outs [dict get $::tuck::graph::target_outputs $canon]
+    ::tuck::phase::execute $outs ::tuck::cmd::_report
+    foreach o $outs {
+        puts [::tuck::graph::exec_path $o]
     }
 }
 
@@ -120,6 +139,7 @@ proc ::tuck::main {argv} {
     switch -- $cmd {
         targets { ::tuck::cmd::targets [lindex $argv 1] }
         analyze { ::tuck::cmd::analyze [lindex $argv 1] }
+        build   { ::tuck::cmd::build   [lindex $argv 1] }
         query {
             set sub [lindex $argv 1]
             switch -- $sub {

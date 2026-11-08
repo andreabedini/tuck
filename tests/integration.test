@@ -125,4 +125,76 @@ test targets-skip-tuck-out {//... does not scan tuck-out/} -setup {
     set out
 } -result "//app:a\n//lib:util"
 
+# A repo whose genrule passes paths to `sh -c` through $SRCS and $OUT.
+proc make_build_repo {} {
+    set root [makeDirectory bdrepo[incr ::repocount]]
+    file mkdir [file join $root .tuck]
+    makeFile {
+        rules {
+            tuck::rule genrule {
+                attrs {
+                    name {type string  mandatory true}
+                    srcs {type sources mandatory true}
+                    out  {type string  mandatory true}
+                    cmd  {type string  mandatory true}
+                    deps {type deps    mandatory false default {}}
+                }
+                impl {
+                    set out [ctx declare_output [ctx attr out]]
+                    set ins [ctx attr srcs]
+                    foreach d [ctx attr deps] {
+                        lappend ins {*}[ctx dep_outputs $d]
+                    }
+                    set paths {}
+                    foreach i $ins { lappend paths [ctx path $i] }
+                    ctx action inputs $ins outputs [list $out] \
+                        cmd [list sh -c [ctx attr cmd]] \
+                        env [dict create SRCS [join $paths " "] OUT [ctx path $out]]
+                }
+            }
+        }
+    } [file join $root TUCK]
+    file mkdir [file join $root lib]
+    makeFile hello [file join $root lib u.txt]
+    makeFile {targets {
+        genrule {name util srcs {u.txt} out util.txt cmd {tr a-z A-Z < $SRCS > $OUT}}
+    }} [file join $root lib BUILD]
+    file mkdir [file join $root app]
+    makeFile app [file join $root app a.txt]
+    makeFile {targets {
+        genrule {name a srcs {a.txt} out a.txt deps {//lib:util} cmd {cat $SRCS > $OUT}}
+        genrule {name sneaky srcs {a.txt} out s.txt cmd {cat lib/u.txt > $OUT}}
+    }} [file join $root app BUILD]
+    return $root
+}
+
+test build-runs {tuck build runs the closure and prints the outputs} -constraints unix -setup {
+    set root [make_build_repo]
+} -body {
+    cd $root
+    lassign [run_tuck $root build //app:a] code out
+    if {$code != 0} { error "exit $code: $out" }
+    set f [open [file join $root tuck-out app __a__ a.txt]]
+    set content [read $f]
+    close $f
+    list $out $content
+} -result [list "run  //lib:util#0\nrun  //app:a#0\ntuck-out/app/__a__/a.txt" "app\nHELLO\n"]
+
+test build-incremental {a second build skips everything} -constraints unix -setup {
+    set root [make_build_repo]
+} -body {
+    cd $root
+    run_tuck $root build //app:a
+    lassign [run_tuck $root build //app:a] code out
+    set out
+} -result "skip //lib:util#0\nskip //app:a#0\ntuck-out/app/__a__/a.txt"
+
+test build-undeclared-input {reading an undeclared file fails the build} -constraints unix -setup {
+    set root [make_build_repo]
+} -body {
+    cd $root
+    lassign [run_tuck $root build //app:sneaky] code out
+    list $code [string match "*tuck: action //app:sneaky#0 failed (exit 1)*" $out]
+} -result {1 1}
+
 cleanupTests
