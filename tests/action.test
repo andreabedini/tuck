@@ -7,6 +7,7 @@ proc reset_stores {} {
     set ::tuck::graph::actions {}
     set ::tuck::graph::target_outputs {}
     set ::tuck::graph::_action_counter {}
+    set ::tuck::graph::producers {}
 }
 
 test source-id {source artifact id format} -body {
@@ -73,5 +74,20 @@ test exec-path-unknown {an unregistered id errors} -setup {
     catch {::tuck::graph::exec_path source:nope} err
     set err
 } -result {tuck: unknown artifact 'source:nope'}
+
+test register-action-producers {outputs are indexed by producing action} -setup {
+    reset_stores
+} -body {
+    ::tuck::graph::register_action //a {} {o1 o2} cc {}
+    set ::tuck::graph::producers
+} -result {o1 //a#0 o2 //a#0}
+
+test register-action-double-producer {two actions may not produce one artifact} -setup {
+    reset_stores
+} -body {
+    ::tuck::graph::register_action //a {} {o1} cc {}
+    catch {::tuck::graph::register_action //a {} {o1} cc {}} err
+    list $err [dict size $::tuck::graph::actions]
+} -result {{tuck: o1 is produced by both //a#0 and //a#1} 1}
 
 cleanupTests

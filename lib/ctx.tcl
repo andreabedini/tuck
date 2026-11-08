@@ -131,7 +131,26 @@ proc ::tuck::ctx::action {ctx args} {
             error "tuck: ctx action: missing $req"
         }
     }
-    return [::tuck::graph::register_action [dict get $ctx label] \
+    set label [dict get $ctx label]
+    foreach id [concat [dict get $spec inputs] [dict get $spec outputs]] {
+        if {![dict exists $::tuck::graph::artifacts $id]} {
+            error "tuck: ctx action: unknown artifact '$id'"
+        }
+    }
+    foreach id [dict get $spec outputs] {
+        set a [dict get $::tuck::graph::artifacts $id]
+        if {[dict get $a type] ne "declared" || [dict get $a target] ne $label} {
+            error "tuck: ctx action: $id is not an output of $label"
+        }
+    }
+    # Tcl's exec reads these words as redirections, not arguments.
+    set cmd [dict get $spec cmd]
+    foreach w $cmd {
+        if {[regexp {^(<|>|\||2>)} $w] || ($w eq "&" && $w eq [lindex $cmd end])} {
+            error "tuck: ctx action: cmd word '$w' would be read as a redirection by exec; wrap the command in sh -c"
+        }
+    }
+    return [::tuck::graph::register_action $label \
         [dict get $spec inputs] [dict get $spec outputs] \
         [dict get $spec cmd] [dict get $spec env]]
 }

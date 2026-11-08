@@ -11,6 +11,7 @@ proc setup_ctx {} {
     set ::tuck::graph::actions {}
     set ::tuck::graph::target_outputs {}
     set ::tuck::graph::_action_counter {}
+    set ::tuck::graph::producers {}
     dict set ::tuck::graph::rules genrule [dict create schema {
         name {type string  mandatory true}
         srcs {type sources mandatory true}
@@ -65,10 +66,12 @@ test dep-outputs-unanalysed {dep_outputs on an unanalysed label errors} -setup {
 } -result 1
 
 test action-registers {ctx action registers a node and returns its id} -setup {setup_ctx} -body {
-    set id [::tuck::ctx::action [app_node] inputs {a} outputs {b} cmd {cc}]
+    set in  [::tuck::graph::register_source app/main.c]
+    set out [::tuck::ctx::declare_output [app_node] hello]
+    set id [::tuck::ctx::action [app_node] inputs [list $in] outputs [list $out] cmd {cc}]
     list $id [dict get $::tuck::graph::actions $id inputs] \
              [dict get $::tuck::graph::actions $id env]
-} -result {//app:hello#0 a {}}
+} -result {//app:hello#0 source:app/main.c {}}
 
 test action-missing-arg {ctx action requires inputs/outputs/cmd} -setup {setup_ctx} -body {
     catch {::tuck::ctx::action [app_node] inputs {a} outputs {b}} err
@@ -116,5 +119,38 @@ foreach {n bad} {1 {} 2 /abs 3 ../up 4 a/../b 5 a//b 6 ./a 7 dir/} {
         set err
     } -result "tuck: ctx declare_output: invalid path '$bad'"
 }
+
+test action-unknown-artifact {inputs must be registered artifacts} -setup {setup_ctx} -body {
+    set out [::tuck::ctx::declare_output [app_node] hello]
+    catch {::tuck::ctx::action [app_node] inputs {build/x.o} outputs [list $out] cmd {cc}} err
+    set err
+} -result {tuck: ctx action: unknown artifact 'build/x.o'}
+
+test action-foreign-output {outputs must be declared by this target} -setup {setup_ctx} -body {
+    set src [::tuck::graph::register_source app/main.c]
+    set other [::tuck::graph::register_declared //lib:util util.o]
+    catch {::tuck::ctx::action [app_node] inputs {} outputs [list $src] cmd {cc}} m1
+    catch {::tuck::ctx::action [app_node] inputs {} outputs [list $other] cmd {cc}} m2
+    list $m1 $m2
+} -result {{tuck: ctx action: source:app/main.c is not an output of //app:hello} {tuck: ctx action: declared://lib:util:util.o is not an output of //app:hello}}
+
+foreach {n w} {1 >out 2 2>@1 3 <in 4 | 5 >>log} {
+    test action-redirect-$n "cmd word '$w' is rejected" -setup {setup_ctx} -body {
+        set out [::tuck::ctx::declare_output [app_node] hello]
+        catch {::tuck::ctx::action [app_node] inputs {} outputs [list $out] cmd [list cc $w]} err
+        set err
+    } -result "tuck: ctx action: cmd word '$w' would be read as a redirection by exec; wrap the command in sh -c"
+}
+
+test action-background {a trailing & is rejected} -setup {setup_ctx} -body {
+    set out [::tuck::ctx::declare_output [app_node] hello]
+    catch {::tuck::ctx::action [app_node] inputs {} outputs [list $out] cmd {cc &}} err
+    set err
+} -result {tuck: ctx action: cmd word '&' would be read as a redirection by exec; wrap the command in sh -c}
+
+test action-sh-c-ok {redirections inside an sh -c script are fine} -setup {setup_ctx} -body {
+    set out [::tuck::ctx::declare_output [app_node] hello]
+    ::tuck::ctx::action [app_node] inputs {} outputs [list $out] cmd {sh -c {echo hi > x}}
+} -result {//app:hello#0}
 
 cleanupTests
