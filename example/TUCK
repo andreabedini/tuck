@@ -3,36 +3,61 @@
 # Rules are defined only in the root TUCK file (loaded deterministically before
 # any package). Each `tuck::rule` registers a constructor usable in BUILD files;
 # its `impl` body runs during analysis and emits the action graph via `ctx`.
+#
+# Every file an action reads or writes is an artifact, and every command names
+# files by their exec path (`ctx path`). That is what lets `tuck build` run each
+# action in a sandbox that contains only the action's declared inputs.
 
 rules {
     # --- path helpers --------------------------------------------------------
     #
     # These run inside the (safe) rules interpreter, where `file` is
-    # unavailable, so they use plain string operations. They are shared by the
-    # rule impls below and take no `ctx` argument.
+    # unavailable, so they use plain string operations.
 
-    # "source:lib/greet/greet.c"  ->  "lib/greet/greet.c"
-    proc src_path {id} {
-        return [regsub {^source:} $id {}]
+    # "a/b/c.h" -> "a/b"; a bare "c.h" -> "."
+    proc dir_of {path} {
+        if {[string first / $path] < 0} { return . }
+        return [regsub {/[^/]*$} $path {}]
     }
 
-    # a source artifact id  ->  "build/<basename without .c>.o"
-    proc obj_path {srcid} {
-        regexp {([^/]+)\.c$} [src_path $srcid] -> base
-        return "build/$base.o"
+    # "a/b/c.h" -> "c.h"
+    proc base_of {path} {
+        return [regsub {^.*/} $path {}]
     }
 
-    # canonical label "//lib/greet:greet"  ->  "build/libgreet.a"
-    proc lib_path {label} {
-        regexp {:([^:/]+)$} $label -> name
-        return "build/lib$name.a"
+    # --- compile -------------------------------------------------------------
+    #
+    # Compile each C source to a private object file (an artifact dependents do
+    # not see). $hdrs are the header artifacts the compile may include: they
+    # become inputs, and their directories become -I flags. Returns the object
+    # artifact ids. Helpers call `ctx` directly; it is bound to the target
+    # being analysed.
+    proc compile {srcs hdrs copts} {
+        set incs {}
+        foreach h $hdrs {
+            set flag -I[dir_of [ctx path $h]]
+            if {$flag ni $incs} { lappend incs $flag }
+        }
+        set objs {}
+        foreach src $srcs {
+            set base [regsub {\.c$} [base_of [ctx path $src]] {}]
+            set obj [ctx declare_output build/$base.o -private]
+            ctx action \
+                inputs  [concat [list $src] $hdrs] \
+                outputs [list $obj] \
+                cmd     [concat [list cc] $copts $incs \
+                             [list -c [ctx path $src] -o [ctx path $obj]]]
+            lappend objs $obj
+        }
+        return $objs
     }
 
     # --- cc_library ----------------------------------------------------------
     #
-    # Compile each C source to an object file, then bundle the objects into a
-    # static archive. The archive is the library's single public output, so a
-    # dependent sees exactly one artifact via `ctx dep_outputs`.
+    # Compile the sources and bundle the objects into a static archive. The
+    # headers are copied to include/ and published alongside the archive, so a
+    # dependent sees both through `ctx dep_outputs` and can compile against the
+    # headers without reading anything it did not declare.
     tuck::rule cc_library {
         attrs {
             name  {type string  mandatory true}
@@ -41,30 +66,25 @@ rules {
             copts {type list    mandatory false default {}}
         }
         impl {
-            set copts [ctx attr copts]
-            set hdrs  [ctx attr hdrs]
-            set objs  {}
-            foreach src [ctx attr srcs] {
-                set obj [obj_path $src]
-                ctx action \
-                    inputs  [concat [list $src] $hdrs] \
-                    outputs [list $obj] \
-                    cmd     [concat [list cc] $copts [list -c [src_path $src] -o $obj]]
-                lappend objs $obj
+            set hdrs [ctx attr hdrs]
+            set objs [compile [ctx attr srcs] $hdrs [ctx attr copts]]
+            foreach h $hdrs {
+                set pub [ctx declare_output include/[base_of [ctx path $h]]]
+                ctx action inputs [list $h] outputs [list $pub] \
+                    cmd [list cp [ctx path $h] [ctx path $pub]]
             }
-            set lib [lib_path [ctx label]]
-            set out [ctx declare_output $lib]
-            ctx action \
-                inputs  $objs \
-                outputs [list $out] \
-                cmd     [concat [list ar rcs $lib] $objs]
+            set lib [ctx declare_output build/lib[ctx attr name].a]
+            set cmd [list ar rcs [ctx path $lib]]
+            foreach o $objs { lappend cmd [ctx path $o] }
+            ctx action inputs $objs outputs [list $lib] cmd $cmd
         }
     }
 
     # --- cc_binary -----------------------------------------------------------
     #
-    # Compile each C source, then link the objects together with the static
-    # archive of every dependency into an executable.
+    # Compile the sources against the deps' published headers, then link the
+    # objects with the deps' archives. Telling headers from archives by
+    # extension is a stand-in for typed providers, a later milestone.
     tuck::rule cc_binary {
         attrs {
             name  {type string  mandatory true}
@@ -73,28 +93,22 @@ rules {
             copts {type list    mandatory false default {}}
         }
         impl {
-            set copts [ctx attr copts]
-            set objs  {}
-            foreach src [ctx attr srcs] {
-                set obj [obj_path $src]
-                ctx action \
-                    inputs  [list $src] \
-                    outputs [list $obj] \
-                    cmd     [concat [list cc] $copts [list -c [src_path $src] -o $obj]]
-                lappend objs $obj
-            }
-            set libids   {}
-            set libfiles {}
+            set hdrs {}
+            set libs {}
             foreach d [ctx attr deps] {
-                foreach a [ctx dep_outputs $d] { lappend libids $a }
-                lappend libfiles [lib_path $d]
+                foreach a [ctx dep_outputs $d] {
+                    switch -glob -- [ctx path $a] {
+                        *.h { lappend hdrs $a }
+                        *.a { lappend libs $a }
+                    }
+                }
             }
-            set bin "build/[ctx attr name]"
-            set out [ctx declare_output $bin]
-            ctx action \
-                inputs  [concat $objs $libids] \
-                outputs [list $out] \
-                cmd     [concat [list cc] $objs $libfiles [list -o $bin]]
+            set objs [compile [ctx attr srcs] $hdrs [ctx attr copts]]
+            set bin [ctx declare_output build/[ctx attr name]]
+            set cmd [list cc]
+            foreach o [concat $objs $libs] { lappend cmd [ctx path $o] }
+            lappend cmd -o [ctx path $bin]
+            ctx action inputs [concat $objs $libs] outputs [list $bin] cmd $cmd
         }
     }
 }
