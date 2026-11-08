@@ -69,6 +69,8 @@ proc ::tuck::sandbox::run {id execroot inputs outputs cmd env} {
     if {$code} {
         set ec [dict get $opts -errorcode]
         set status [expr {[lindex $ec 0] eq "CHILDSTATUS" ? [lindex $ec 2] : "error"}]
+        # exec appends this to the output on a non-zero exit; the status says it.
+        regsub {\n?child process exited abnormally$} $out {} out
         _fail $dir $keep "tuck: action $id failed (exit $status)\n$out"
     }
     foreach p $outputs {
