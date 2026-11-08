@@ -13,6 +13,7 @@ proc ::tuck::reset {} {
     set ::tuck::graph::actions {}
     set ::tuck::graph::target_outputs {}
     set ::tuck::graph::_action_counter {}
+    set ::tuck::graph::producers {}
     if {$::tuck::interp::target ne "" && [interp exists $::tuck::interp::target]} {
         interp delete $::tuck::interp::target
     }

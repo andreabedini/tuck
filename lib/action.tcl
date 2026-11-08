@@ -3,6 +3,7 @@ namespace eval ::tuck::graph {
     variable actions {}
     variable target_outputs {}
     variable _action_counter {}
+    variable producers {}
 }
 
 proc ::tuck::graph::source_id {relpath} {
@@ -29,16 +30,25 @@ proc ::tuck::graph::register_declared {label relpath} {
 }
 
 # Register a static action node for $label. Returns the generated id.
+# Errors if any output already has a producing action.
 proc ::tuck::graph::register_action {label inputs outputs cmd env} {
     set n 0
     if {[dict exists $::tuck::graph::_action_counter $label]} {
         set n [dict get $::tuck::graph::_action_counter $label]
     }
-    dict set ::tuck::graph::_action_counter $label [expr {$n + 1}]
     set id "$label#$n"
+    foreach o $outputs {
+        if {[dict exists $::tuck::graph::producers $o]} {
+            error "tuck: $o is produced by both [dict get $::tuck::graph::producers $o] and $id"
+        }
+    }
+    dict set ::tuck::graph::_action_counter $label [expr {$n + 1}]
     dict set ::tuck::graph::actions $id [dict create \
         id $id target $label inputs $inputs outputs $outputs \
         cmd $cmd env $env dynamic false]
+    foreach o $outputs {
+        dict set ::tuck::graph::producers $o $id
+    }
     return $id
 }
 
