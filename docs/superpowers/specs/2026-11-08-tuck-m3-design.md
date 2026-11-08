@@ -56,7 +56,7 @@ The `__<name>__` segment keeps a target's outputs apart from sub-packages and fr
 other targets in the same package, so two targets may both declare `build/main.o`.
 
 `tuck-out/` lives at the repo root. The `//...` package scanner skips it, as it
-already skips `.tuck/`.
+already skips `.tuck/`, and it is listed in `.gitignore`.
 
 ### 3.1 `ctx path <artifact-id>`
 
@@ -94,6 +94,12 @@ flag:
 - An artifact may be produced by at most one action
   (`tuck: <id> is produced by both <a> and <b>`).
 
+Every word of `cmd` is passed to Tcl's `exec`, which treats words such as `>out`,
+`2>@1`, `<in`, `|` or a final `&` as redirections, not arguments. `ctx action` rejects
+a `cmd` containing such a word (`tuck: ctx action: cmd word '<w>' would be read as a
+redirection by exec; wrap the command in sh -c`). Shell features go inside
+`sh -c {...}`, whose script is a single word.
+
 `ctx declare_output` rejects absolute paths, `..` segments and empty paths
 (`tuck: ctx declare_output: invalid path '<rel>'`).
 
@@ -108,8 +114,11 @@ flag:
    error (`tuck: missing source file <path>`).
 3. Order the needed actions leaves-first (post-order DFS over input → producer edges,
    detecting cycles: `tuck: action cycle: <a> -> <b> -> …`).
-4. For each action in order: if it is up to date (§7) print `skip <id>`; otherwise
-   run it in a sandbox (§6), print `run <id>`, and record it in the action database.
+4. For each action in order: if it is up to date (§7) report `skip <id>`; otherwise
+   report `run <id>`, run it in a sandbox (§6), report any output it printed, and
+   record it in the action database. Reporting goes through a callback the CLI
+   supplies, so the phase itself does not print; `execute` also returns the list of
+   `{run|skip <id>}` events for tests.
 5. The first failing action stops the build.
 
 `tuck build <label>` runs `analyse` on the label, then `execute` on that target's
@@ -160,8 +169,11 @@ An action is **stale** if any of:
 - any input's current `mtime` or size differs from the recorded value.
 
 Comparing against recorded values, rather than "input newer than output", also
-catches reverted files and changed commands. Because a rebuilt upstream output gets a
-new `mtime`, staleness propagates to dependents naturally. M5 replaces the
+catches reverted files and changed commands. Within a run, an action whose input was
+produced by an action that just ran is always stale, so a rebuild propagates to
+dependents even when the new output has the same size and `mtime` second as the old
+one. (Across runs, a same-second, same-size change can still be missed; content
+hashing in M5 closes that gap.) M5 replaces the
 `{mtime size}` pair with a content hash; the database shape stays the same.
 
 ## 8. Modules and CLI
@@ -241,9 +253,10 @@ extension is enough for M3.
 - All error cases produce clear `tuck:`-prefixed messages.
 - All `tcltest` suites green.
 
-## 13. Open questions
+## 13. Decisions
 
-- Symlinked inputs are fast but let an action write through to the source file.
-  Copying is safer and slower. M3 uses symlinks; revisit if it bites.
-- `PATH` is inherited from the host, so toolchains are not hermetic. Declaring
-  toolchains as artifacts is a separate design question.
+- **Inputs are symlinked**, not copied. This is fast, but an action can write
+  through a link to the real file. Accepted for M3; revisit if it bites.
+- **Toolchain hermeticity is the user's responsibility**, as in Buck2. `PATH` is
+  inherited from the host; rules that need a pinned toolchain must reference it
+  explicitly.
