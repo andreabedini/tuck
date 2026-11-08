@@ -110,6 +110,12 @@ Execution is a worklist algorithm over the action graph:
 Content hashing is used to determine whether an action's outputs are already
 up-to-date (milestone 2+). Initial implementation may use mtime.
 
+> **M3 implementation** (see `docs/superpowers/specs/2026-11-08-tuck-m3-design.md`):
+> single-threaded, so the "ready queue" is a leaves-first DFS over the needed actions.
+> Staleness uses an action database (`tuck-out/.db`) recording each action's
+> `cmd`/`env` and the `{mtime size}` of its inputs. Each action runs in a pure-Tcl
+> directory sandbox holding only its declared inputs, with a cleared environment.
+
 ---
 
 ## 5. Target Graph
