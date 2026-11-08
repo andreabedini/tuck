@@ -1,0 +1,91 @@
+package require tcltest
+namespace import ::tcltest::*
+source [file join [file dirname [info script]] .. lib sandbox.tcl]
+
+testConstraint posix [expr {$tcl_platform(platform) eq "unix"}]
+
+# A fresh exec root with one declared input (a.txt) and one undeclared file.
+proc fresh_root {} {
+    set r [file normalize [makeDirectory sbx[incr ::sbc]]]
+    makeFile alpha [file join $r a.txt]
+    makeFile secret [file join $r secret.txt]
+    return $r
+}
+
+proc slurp {path} {
+    set f [open $path r]
+    set d [read $f]
+    close $f
+    return $d
+}
+
+test sandbox-output {declared outputs are moved to their exec path} -constraints posix -body {
+    set r [fresh_root]
+    ::tuck::sandbox::run t#0 $r {a.txt} {out/o.txt} {sh -c {cp a.txt out/o.txt}} {}
+    slurp [file join $r out o.txt]
+} -result "alpha\n"
+
+test sandbox-hides-undeclared {only declared inputs are visible} -constraints posix -body {
+    set r [fresh_root]
+    catch {::tuck::sandbox::run t#0 $r {a.txt} {} {sh -c {cat secret.txt}} {}} err
+    string match "tuck: action t#0 failed (exit 1)*" $err
+} -result 1
+
+test sandbox-returns-output {captured stdout+stderr is returned} -constraints posix -body {
+    set r [fresh_root]
+    ::tuck::sandbox::run t#0 $r {} {} {sh -c {echo out; echo err >&2}} {}
+} -result "out\nerr"
+
+test sandbox-clears-env {host variables are not visible; ::env is restored} -constraints posix -setup {
+    set ::env(TUCK_LEAK) leaked
+} -cleanup {
+    unset -nocomplain ::env(TUCK_LEAK)
+} -body {
+    set r [fresh_root]
+    set seen [::tuck::sandbox::run t#0 $r {} {} {sh -c {printf '[%s]' "$TUCK_LEAK"}} {}]
+    list $seen $::env(TUCK_LEAK)
+} -result {{[]} leaked}
+
+test sandbox-action-env {the action's env is applied} -constraints posix -body {
+    set r [fresh_root]
+    ::tuck::sandbox::run t#0 $r {} {} {sh -c {printf %s "$GREETING"}} {GREETING hi}
+} -result {hi}
+
+test sandbox-home {HOME points inside the sandbox} -constraints posix -body {
+    set r [fresh_root]
+    set home [::tuck::sandbox::run t#0 $r {} {} {sh -c {printf %s "$HOME"}} {}]
+    string match "$r/tuck-out/sandbox/*/.home" $home
+} -result 1
+
+test sandbox-missing-output {a declared output that is not produced is an error} -constraints posix -body {
+    set r [fresh_root]
+    catch {::tuck::sandbox::run t#0 $r {} {o.txt} {true} {}} err
+    set err
+} -result {tuck: action t#0 did not produce o.txt}
+
+test sandbox-restores-pwd {the working directory is restored after a failure} -constraints posix -body {
+    set r [fresh_root]
+    set before [pwd]
+    catch {::tuck::sandbox::run t#0 $r {} {} {false} {}}
+    expr {[pwd] eq $before}
+} -result 1
+
+test sandbox-cleanup {sandbox directories are removed on success and failure} -constraints posix -body {
+    set r [fresh_root]
+    ::tuck::sandbox::run t#0 $r {} {} {true} {}
+    catch {::tuck::sandbox::run t#1 $r {} {} {false} {}}
+    glob -nocomplain -directory [file join $r tuck-out sandbox] *
+} -result {}
+
+test sandbox-keep {TUCK_KEEP_SANDBOX=1 keeps a failed sandbox} -constraints posix -setup {
+    set ::env(TUCK_KEEP_SANDBOX) 1
+} -cleanup {
+    unset -nocomplain ::env(TUCK_KEEP_SANDBOX)
+} -body {
+    set r [fresh_root]
+    catch {::tuck::sandbox::run t#0 $r {} {} {false} {}} err
+    regexp {sandbox kept at (\S+)\)} $err -> dir
+    file isdirectory $dir
+} -result 1
+
+cleanupTests
