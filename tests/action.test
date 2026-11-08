@@ -49,4 +49,29 @@ test register-action-node {action node carries all fields} -setup {
     dict get $::tuck::graph::actions $id
 } -result {id //a#0 target //a inputs in1 outputs out1 cmd {cc -o x} env {K v} dynamic false}
 
+test exec-path-source {a source artifact's exec path is its repo path} -setup {
+    reset_stores
+} -body {
+    ::tuck::graph::exec_path [::tuck::graph::register_source app/main.c]
+} -result {app/main.c}
+
+test exec-path-declared {declared artifacts live under tuck-out/<pkg>/__<name>__} -setup {
+    reset_stores
+} -body {
+    ::tuck::graph::exec_path [::tuck::graph::register_declared //lib/greet:greet build/libgreet.a]
+} -result {tuck-out/lib/greet/__greet__/build/libgreet.a}
+
+test exec-path-root-pkg {root-package outputs omit the package segment} -setup {
+    reset_stores
+} -body {
+    ::tuck::graph::exec_path [::tuck::graph::register_declared //:gen out.txt]
+} -result {tuck-out/__gen__/out.txt}
+
+test exec-path-unknown {an unregistered id errors} -setup {
+    reset_stores
+} -body {
+    catch {::tuck::graph::exec_path source:nope} err
+    set err
+} -result {tuck: unknown artifact 'source:nope'}
+
 cleanupTests
