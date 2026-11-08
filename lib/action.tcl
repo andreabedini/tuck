@@ -41,3 +41,18 @@ proc ::tuck::graph::register_action {label inputs outputs cmd env} {
         cmd $cmd env $env dynamic false]
     return $id
 }
+
+# Path of an artifact relative to the exec root (the repo root, or a sandbox).
+# Pure string function: no I/O, safe to expose to rule impls via `ctx path`.
+proc ::tuck::graph::exec_path {id} {
+    if {![dict exists $::tuck::graph::artifacts $id]} {
+        error "tuck: unknown artifact '$id'"
+    }
+    set a [dict get $::tuck::graph::artifacts $id]
+    if {[dict get $a type] eq "source"} {
+        return [dict get $a path]
+    }
+    regexp {^//(.*):([^:]+)$} [dict get $a target] -> pkg name
+    set base [expr {$pkg eq "" ? "tuck-out" : "tuck-out/$pkg"}]
+    return "$base/__${name}__/[dict get $a relpath]"
+}
