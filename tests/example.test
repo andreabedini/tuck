@@ -39,9 +39,7 @@ test example-query-deps {dependency closure is leaves-first} -setup {
     set out
 } -result "//lib/greet:greet\n//app:hello"
 
-# knownBug: the example's object files are plain paths, which ctx action now
-# rejects. Re-enabled when the example is reworked for execution (M3 plan, Task 10).
-test example-analyze {action graph matches README} -constraints knownBug -setup {
+test example-analyze {action graph matches README} -setup {
     set ::savedpwd [pwd]
     cd $::exampledir
 } -cleanup {
@@ -52,19 +50,39 @@ test example-analyze {action graph matches README} -constraints knownBug -setup 
     set out
 } -result "//lib/greet:greet#0
   inputs:  source:lib/greet/greet.c source:lib/greet/greet.h
-  outputs: build/greet.o
-  cmd:     cc -c lib/greet/greet.c -o build/greet.o
+  outputs: declared://lib/greet:greet:build/greet.o
+  cmd:     cc -Ilib/greet -c lib/greet/greet.c -o tuck-out/lib/greet/__greet__/build/greet.o
 //lib/greet:greet#1
-  inputs:  build/greet.o
+  inputs:  source:lib/greet/greet.h
+  outputs: declared://lib/greet:greet:include/greet.h
+  cmd:     cp lib/greet/greet.h tuck-out/lib/greet/__greet__/include/greet.h
+//lib/greet:greet#2
+  inputs:  declared://lib/greet:greet:build/greet.o
   outputs: declared://lib/greet:greet:build/libgreet.a
-  cmd:     ar rcs build/libgreet.a build/greet.o
+  cmd:     ar rcs tuck-out/lib/greet/__greet__/build/libgreet.a tuck-out/lib/greet/__greet__/build/greet.o
 //app:hello#0
-  inputs:  source:app/main.c
-  outputs: build/main.o
-  cmd:     cc -Ilib/greet -c app/main.c -o build/main.o
+  inputs:  source:app/main.c declared://lib/greet:greet:include/greet.h
+  outputs: declared://app:hello:build/main.o
+  cmd:     cc -Ituck-out/lib/greet/__greet__/include -c app/main.c -o tuck-out/app/__hello__/build/main.o
 //app:hello#1
-  inputs:  build/main.o declared://lib/greet:greet:build/libgreet.a
+  inputs:  declared://app:hello:build/main.o declared://lib/greet:greet:build/libgreet.a
   outputs: declared://app:hello:build/hello
-  cmd:     cc build/main.o build/libgreet.a -o build/hello"
+  cmd:     cc tuck-out/app/__hello__/build/main.o tuck-out/lib/greet/__greet__/build/libgreet.a -o tuck-out/app/__hello__/build/hello"
+
+testConstraint cc [expr {[auto_execok cc] ne ""}]
+
+test example-build {the example builds and the binary runs} -constraints cc -setup {
+    set ::savedpwd [pwd]
+    cd $::exampledir
+    file delete -force tuck-out
+} -cleanup {
+    file delete -force [file join $::exampledir tuck-out]
+    cd $::savedpwd
+} -body {
+    lassign [run_example build //app:hello] code out
+    if {$code != 0} { error "exit $code: $out" }
+    list [lindex [split $out \n] end] \
+         [exec [file join $::exampledir tuck-out app __hello__ build hello]]
+} -result {tuck-out/app/__hello__/build/hello {Hello, world!}}
 
 cleanupTests
