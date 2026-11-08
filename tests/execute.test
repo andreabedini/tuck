@@ -80,4 +80,57 @@ test plan-cycle {a cycle between actions is reported} -setup fresh -body {
     set err
 } -result {tuck: action cycle: //p:t#0 -> //p:t#1 -> //p:t#0}
 
+test execute-runs {stale actions run in order and produce outputs} -constraints posix -setup fresh -body {
+    set a [chain]
+    list [::tuck::phase::execute [list $a]] [slurp tuck-out/app/__a__/a.txt]
+} -result {{{run //lib:u#0} {run //app:a#0}} HELLO}
+
+test execute-skips {a second run does nothing} -constraints posix -setup fresh -body {
+    set a [chain]
+    ::tuck::phase::execute [list $a]
+    ::tuck::phase::execute [list $a]
+} -result {{skip //lib:u#0} {skip //app:a#0}}
+
+test execute-source-change {a changed source re-runs its action and dependents} -constraints posix -setup fresh -body {
+    set a [chain]
+    ::tuck::phase::execute [list $a]
+    put lib/u.txt bye
+    set f [file join $::tuck::config::root lib u.txt]
+    file mtime $f [expr {[file mtime $f] + 5}]
+    list [::tuck::phase::execute [list $a]] [slurp tuck-out/app/__a__/a.txt]
+} -result {{{run //lib:u#0} {run //app:a#0}} BYE}
+
+test execute-cmd-change {a changed cmd re-runs only that action} -constraints posix -setup fresh -body {
+    set a [chain]
+    ::tuck::phase::execute [list $a]
+    dict set ::tuck::graph::actions //app:a#0 cmd \
+        [list sh -c "cp tuck-out/lib/__u__/u.txt tuck-out/app/__a__/a.txt"]
+    list [::tuck::phase::execute [list $a]] [slurp tuck-out/app/__a__/a.txt]
+} -result {{{skip //lib:u#0} {run //app:a#0}} hello}
+
+test execute-missing-output {a deleted output re-runs its action} -constraints posix -setup fresh -body {
+    set a [chain]
+    ::tuck::phase::execute [list $a]
+    file delete [file join $::tuck::config::root tuck-out app __a__ a.txt]
+    ::tuck::phase::execute [list $a]
+} -result {{skip //lib:u#0} {run //app:a#0}}
+
+test execute-report {the report callback sees run, skip and output events} -constraints posix -setup fresh -body {
+    set o [::tuck::graph::register_declared //p:t o]
+    ::tuck::graph::register_action //p:t {} [list $o] \
+        [list sh -c "echo made; touch [::tuck::graph::exec_path $o]"] {}
+    set ::seen {}
+    proc record {args} { lappend ::seen $args }
+    ::tuck::phase::execute [list $o] record
+    ::tuck::phase::execute [list $o] record
+    set ::seen
+} -result {{run //p:t#0} {output //p:t#0 made} {skip //p:t#0}}
+
+test execute-failure {a failing action stops the build with its message} -constraints posix -setup fresh -body {
+    set o [::tuck::graph::register_declared //p:t o]
+    ::tuck::graph::register_action //p:t {} [list $o] {sh -c {echo boom; exit 3}} {}
+    catch {::tuck::phase::execute [list $o]} err
+    set err
+} -result "tuck: action //p:t#0 failed (exit 3)\nboom"
+
 cleanupTests
