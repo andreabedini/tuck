@@ -85,11 +85,27 @@ proc ::tuck::ctx::attr {ctx key} {
     }
 }
 
-# Declare an output artifact for this target; record + return its id.
-proc ::tuck::ctx::declare_output {ctx relpath} {
+# Declare an output artifact for this target; returns its id. Published in
+# target_outputs (visible to dependents via dep_outputs) unless -private.
+proc ::tuck::ctx::declare_output {ctx relpath args} {
+    set private 0
+    foreach opt $args {
+        if {$opt ne "-private"} {
+            error "tuck: ctx declare_output: unknown option '$opt'"
+        }
+        set private 1
+    }
+    # Splitting on / yields an empty part for absolute paths, `a//b` and a
+    # trailing slash.
+    set parts [split $relpath /]
+    if {$relpath eq "" || "" in $parts || "." in $parts || ".." in $parts} {
+        error "tuck: ctx declare_output: invalid path '$relpath'"
+    }
     set label [dict get $ctx label]
     set id [::tuck::graph::register_declared $label $relpath]
-    dict lappend ::tuck::graph::target_outputs $label $id
+    if {!$private} {
+        dict lappend ::tuck::graph::target_outputs $label $id
+    }
     return $id
 }
 

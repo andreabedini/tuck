@@ -93,4 +93,23 @@ test analyse-missing-target {analysing a non-existent target errors clearly} -se
     string match "tuck: no such target: //app:nosuch" $err
 } -result 1
 
+test analyse-private-only {a target with only private outputs publishes an empty list} -setup {
+    set root [makeDirectory privrepo[incr ::anc]]
+    file mkdir [file join $root .tuck]
+    makeFile {
+        rules {
+            tuck::rule hidden {
+                attrs {name {type string mandatory true}}
+                impl { ctx declare_output x.o -private }
+            }
+        }
+    } [file join $root TUCK]
+    file mkdir [file join $root p]
+    makeFile {targets { hidden {name t} }} [file join $root p BUILD]
+    init_repo $root
+} -body {
+    ::tuck::phase::analyse {//p:t}
+    dict get $::tuck::graph::target_outputs //p:t
+} -result {}
+
 cleanupTests

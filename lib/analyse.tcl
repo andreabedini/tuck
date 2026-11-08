@@ -25,6 +25,11 @@ proc ::tuck::phase::analyse {labels} {
         if {$impl eq ""} {
             error "tuck: rule $rule has no impl"
         }
+        # Every analysed target has an output list, possibly empty, so
+        # dep_outputs on a target with only private outputs returns {}.
+        if {![dict exists $::tuck::graph::target_outputs $label]} {
+            dict set ::tuck::graph::target_outputs $label {}
+        }
         # Curry this target's node into `ctx`: every `ctx ...` call in the impl
         # now runs `dispatch $node ...`. See docs/CODE-TOUR.md §4.2.
         $::tuck::interp::rules alias ctx ::tuck::ctx::dispatch $node

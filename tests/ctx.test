@@ -99,4 +99,22 @@ test ctx-path {ctx path returns an artifact's exec path} -setup {setup_ctx} -bod
     ::tuck::ctx::dispatch [app_node] path $out
 } -result {tuck-out/app/__hello__/build/hello}
 
+test declare-output-private {private outputs are registered but not published} -setup {setup_ctx} -body {
+    set id [::tuck::ctx::declare_output [app_node] build/main.o -private]
+    list $id [dict exists $::tuck::graph::artifacts $id] \
+        [dict exists $::tuck::graph::target_outputs //app:hello]
+} -result {declared://app:hello:build/main.o 1 0}
+
+test declare-output-bad-option {unknown options are rejected} -setup {setup_ctx} -body {
+    catch {::tuck::ctx::declare_output [app_node] x -bogus} err
+    set err
+} -result {tuck: ctx declare_output: unknown option '-bogus'}
+
+foreach {n bad} {1 {} 2 /abs 3 ../up 4 a/../b 5 a//b 6 ./a 7 dir/} {
+    test declare-output-invalid-$n "invalid path '$bad' is rejected" -setup {setup_ctx} -body {
+        catch {::tuck::ctx::declare_output [app_node] $bad} err
+        set err
+    } -result "tuck: ctx declare_output: invalid path '$bad'"
+}
+
 cleanupTests
