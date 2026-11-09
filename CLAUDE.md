@@ -87,7 +87,8 @@ filesystem.
   to the rules interp during analysis); they take no `ctx` parameter.
 - **Loading is lazy/transitive**: load the requested package, follow deps to other
   packages until the graph closes. `//...` is the only eager (tree-scanning) path.
-- Loading-phase invariants, all enforced with `tuck:`-prefixed errors: no duplicate
+- Loading-phase invariants, all enforced with `tuck:`-prefixed errors: target names
+  match `[A-Za-z0-9_.+=,@~-]+` (not `.`/`..`; they become output path components), no duplicate
   labels, all deps resolve to known targets, no dependency cycles.
 - `topo_sort` is post-order DFS → **leaves-first** order, and detects cycles.
 - **Analysis is leaves-first**: `analyse` topo-sorts the closure so a dependency's
@@ -105,7 +106,7 @@ filesystem.
   exec path; there is no `$OUT`/`$SRCS` substitution. `ctx declare_output <rel> -private`
   registers an artifact without publishing it to `dep_outputs`. `ctx action` rejects
   unknown artifacts, outputs owned by another target, a second producer for an
-  artifact (`::tuck::graph::producers`), and `cmd` words Tcl `exec` would read as
+  artifact (`::tuck::graph::producers`), an input or output listed twice, and `cmd` words Tcl `exec` would read as
   redirections (`>x`, `2>@1`, `<x`, `|`, trailing `&`) — shell features go in `sh -c`.
 - **The sandbox changes process-wide state**: `::tuck::sandbox::run` `cd`s into the
   sandbox and replaces `::env` for the duration of the `exec`, restoring both in a
