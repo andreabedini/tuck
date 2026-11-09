@@ -45,4 +45,33 @@ test dup-label {duplicate label errors} -setup {
     string match "tuck: duplicate target label: //p:a" $err
 } -result 1
 
+test bad-name {target names that could escape tuck-out are rejected} -setup {
+    reset
+    ::tuck::register_rule lib {attrs {name {type string mandatory true}}}
+    set ::tuck::_current_pkg p
+} -body {
+    lmap n {x__/../../../../outside a/b a:b . .. {a b} {}} {
+        catch {::tuck::register_target lib [list name $n]} err
+        set err
+    }
+} -result [list \
+    {tuck: invalid target name 'x__/../../../../outside' in //p} \
+    {tuck: invalid target name 'a/b' in //p} \
+    {tuck: invalid target name 'a:b' in //p} \
+    {tuck: invalid target name '.' in //p} \
+    {tuck: invalid target name '..' in //p} \
+    {tuck: invalid target name 'a b' in //p} \
+    {tuck: invalid target name '' in //p}]
+
+test good-names {ordinary target names are accepted} -setup {
+    reset
+    ::tuck::register_rule lib {attrs {name {type string mandatory true}}}
+    set ::tuck::_current_pkg p
+} -body {
+    foreach n {hello lib_util foo.bar a-b c++ v1.2} {
+        ::tuck::register_target lib [list name $n]
+    }
+    dict keys $::tuck::graph::targets
+} -result {//p:hello //p:lib_util //p:foo.bar //p:a-b //p:c++ //p:v1.2}
+
 cleanupTests

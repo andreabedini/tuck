@@ -31,6 +31,11 @@ proc ::tuck::register_target {rule attrs} {
     set schema [dict get $rdef schema]
     set valid  [::tuck::validate_attrs $rule $schema $attrs]
     set name   [dict get $valid name]
+    # The name becomes a path component of the target's output directory
+    # (::tuck::graph::exec_path), so it must not be able to escape it.
+    if {![regexp {^[A-Za-z0-9_.+=,@~-]+$} $name] || $name in {. ..}} {
+        error "tuck: invalid target name '$name' in //$_current_pkg"
+    }
     set label  [::tuck::util::label_canon $_current_pkg $name]
     if {[dict exists $::tuck::graph::targets $label]} {
         error "tuck: duplicate target label: $label"
