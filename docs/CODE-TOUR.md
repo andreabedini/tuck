@@ -587,7 +587,7 @@ sandbox knows nothing about artifacts or the graph, only files.
 `::tuck::sandbox::run` takes one action's command, its input and output paths, and the
 repo root, and runs the command where it can see only its inputs:
 
-1. **Make a fresh directory**, `tuck-out/sandbox/<n>/`.
+1. **Make a fresh directory**, `tuck-out/.sandbox/<n>/`.
 2. **Stage the inputs.** For each input path, create a symbolic link at the same
    relative path inside the sandbox, pointing at the real file. Nothing else from the
    repo is there, so a command that reads a file it didn't declare simply doesn't find

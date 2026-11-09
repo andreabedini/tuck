@@ -54,7 +54,7 @@ test sandbox-action-env {the action's env is applied} -constraints posix -body {
 test sandbox-home {HOME points inside the sandbox} -constraints posix -body {
     set r [fresh_root]
     set home [::tuck::sandbox::run t#0 $r {} {} {sh -c {printf %s "$HOME"}} {}]
-    string match "$r/tuck-out/sandbox/*/.home" $home
+    string match "$r/tuck-out/.sandbox/*/.home" $home
 } -result 1
 
 test sandbox-missing-output {a declared output that is not produced is an error} -constraints posix -body {
@@ -74,8 +74,18 @@ test sandbox-cleanup {sandbox directories are removed on success and failure} -c
     set r [fresh_root]
     ::tuck::sandbox::run t#0 $r {} {} {true} {}
     catch {::tuck::sandbox::run t#1 $r {} {} {false} {}}
-    glob -nocomplain -directory [file join $r tuck-out sandbox] *
+    glob -nocomplain -directory [file join $r tuck-out .sandbox] *
 } -result {}
+
+test sandbox-package-named-sandbox {outputs of a package called sandbox/1 survive} -constraints posix -body {
+    set r [fresh_root]
+    set ::tuck::sandbox::counter 0
+    set keep [file join $r tuck-out sandbox 1 __t__ keep]
+    file mkdir [file dirname $keep]
+    close [open $keep w]
+    ::tuck::sandbox::run t#0 $r {} {} {true} {}
+    file exists $keep
+} -result 1
 
 test sandbox-keep {TUCK_KEEP_SANDBOX=1 keeps a failed sandbox} -constraints posix -setup {
     set ::env(TUCK_KEEP_SANDBOX) 1
