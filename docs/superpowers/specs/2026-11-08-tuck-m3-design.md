@@ -132,7 +132,7 @@ interpreter, which has `file`, `exec` and `cd`; the child interpreters are uncha
 
 For one action:
 
-1. **Create** `tuck-out/sandbox/<n>/` (`<n>` a per-run counter), removing any
+1. **Create** `tuck-out/.sandbox/<n>/` (`<n>` a per-run counter), removing any
    leftover directory of that name first.
 2. **Stage inputs.** For each input, create its exec path's parent directories in
    the sandbox and add a symbolic link to the real file (source in the repo, declared

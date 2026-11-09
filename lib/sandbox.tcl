@@ -34,7 +34,9 @@ proc ::tuck::sandbox::_fail {dir keep msg} {
 proc ::tuck::sandbox::run {id execroot inputs outputs cmd env} {
     variable counter
     set execroot [file normalize $execroot]
-    set dir [file join $execroot tuck-out sandbox [incr counter]]
+    # Dot-named, like .db: tuck-out/<pkg>/ holds package outputs, and
+    # load_package rejects package paths with a dot-led component.
+    set dir [file join $execroot tuck-out .sandbox [incr counter]]
     file delete -force $dir
     file mkdir [file join $dir .home] [file join $dir .tmp]
     foreach p $inputs {

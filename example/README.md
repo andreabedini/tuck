@@ -158,7 +158,7 @@ tuck-out/app/__hello__/build/hello
 
 ### The sandbox
 
-Each action runs in its own directory under `tuck-out/sandbox/`, which contains
+Each action runs in its own directory under `tuck-out/.sandbox/`, which contains
 only that action's declared inputs, with an almost empty environment (`PATH`
 from the host, a private `HOME` and `TMPDIR`, `LANG=C`, `TZ=UTC`). Its declared
 outputs are then moved into `tuck-out/`.
