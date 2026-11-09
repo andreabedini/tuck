@@ -84,9 +84,10 @@ proc ::tuck::phase::_paths {ids} {
     return [lmap id $ids {::tuck::graph::exec_path $id}]
 }
 
-# What, besides its inputs, determines an action's outputs.
+# What, besides its inputs, determines an action's outputs. The output set is
+# part of it: an action that newly declares an existing file must still run.
 proc ::tuck::phase::_key {a} {
-    return [list [dict get $a cmd] [dict get $a env]]
+    return [list [dict get $a cmd] [dict get $a env] [_paths [dict get $a outputs]]]
 }
 
 # exec path -> {mtime size} for each input.
