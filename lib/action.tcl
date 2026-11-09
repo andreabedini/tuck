@@ -37,6 +37,16 @@ proc ::tuck::graph::register_action {label inputs outputs cmd env} {
         set n [dict get $::tuck::graph::_action_counter $label]
     }
     set id "$label#$n"
+    # The sandbox stages each input and collects each output once per entry.
+    foreach {kind ids} [list input $inputs output $outputs] {
+        set seen {}
+        foreach x $ids {
+            if {[dict exists $seen $x]} {
+                error "tuck: action $id lists $kind $x more than once"
+            }
+            dict set seen $x 1
+        }
+    }
     foreach o $outputs {
         if {[dict exists $::tuck::graph::producers $o]} {
             error "tuck: $o is produced by both [dict get $::tuck::graph::producers $o] and $id"
