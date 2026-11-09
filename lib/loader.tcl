@@ -81,6 +81,16 @@ proc ::tuck::phase::load_root_rules {} {
 
 # Load a single package's BUILD file.
 proc ::tuck::phase::load_package {pkg} {
+    # A package path is canonical and stays inside the repo: no empty, `.` or
+    # `..` components, and none starting with a dot (which also keeps packages
+    # off tuck-out/.sandbox and tuck-out/.db). The root package is "".
+    if {$pkg ne ""} {
+        foreach c [split $pkg /] {
+            if {$c eq "" || [string index $c 0] eq "."} {
+                error "tuck: invalid package path '//$pkg'"
+            }
+        }
+    }
     set bf [file join $::tuck::config::root $pkg BUILD]
     if {![file exists $bf]} {
         error "tuck: no BUILD file for package //$pkg"
