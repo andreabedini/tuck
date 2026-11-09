@@ -108,6 +108,30 @@ test execute-cmd-change {a changed cmd re-runs only that action} -constraints po
     list [::tuck::phase::execute [list $a]] [slurp tuck-out/app/__a__/a.txt]
 } -result {{{skip //lib:u#0} {run //app:a#0}} hello}
 
+# //t:t#0 always writes X and Y; first it declares only X and #1 produces Y.
+# Then #0 also declares Y (and #1 goes away), with the cmd unchanged.
+proc moved_output {both} {
+    foreach v {artifacts actions target_outputs _action_counter producers} {
+        set ::tuck::graph::$v {}
+    }
+    set x [::tuck::graph::register_declared //t:t X]
+    set y [::tuck::graph::register_declared //t:t Y]
+    set px [::tuck::graph::exec_path $x]
+    set py [::tuck::graph::exec_path $y]
+    ::tuck::graph::register_action //t:t {} [expr {$both ? [list $x $y] : [list $x]}] \
+        [list sh -c "echo A > $px; echo A > $py"] {}
+    if {!$both} {
+        ::tuck::graph::register_action //t:t {} [list $y] [list sh -c "echo B > $py"] {}
+    }
+    return [list $x $y]
+}
+
+test execute-outputs-change {a changed output set re-runs the action} -constraints posix -setup fresh -body {
+    ::tuck::phase::execute [moved_output 0]
+    set before [slurp tuck-out/t/__t__/Y]
+    list $before [::tuck::phase::execute [moved_output 1]] [slurp tuck-out/t/__t__/Y]
+} -result [list "B\n" {{run //t:t#0}} "A\n"]
+
 test execute-missing-output {a deleted output re-runs its action} -constraints posix -setup fresh -body {
     set a [chain]
     ::tuck::phase::execute [list $a]
