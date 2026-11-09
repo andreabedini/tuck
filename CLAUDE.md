@@ -88,7 +88,8 @@ filesystem.
 - **Loading is lazy/transitive**: load the requested package, follow deps to other
   packages until the graph closes. `//...` is the only eager (tree-scanning) path.
 - Loading-phase invariants, all enforced with `tuck:`-prefixed errors: target names
-  match `[A-Za-z0-9_.+=,@~-]+` (not `.`/`..`; they become output path components), no duplicate
+  match `[A-Za-z0-9_.+=,@~-]+` (not `.`/`..`; they become output path components), package paths have
+  no empty or dot-led components (checked in `load_package`), no duplicate
   labels, all deps resolve to known targets, no dependency cycles.
 - `topo_sort` is post-order DFS → **leaves-first** order, and detects cycles.
 - **Analysis is leaves-first**: `analyse` topo-sorts the closure so a dependency's

@@ -52,6 +52,28 @@ test lazy-load {loads seed package and follows deps; no others read} -setup {
     lsort [dict keys $::tuck::graph::targets]
 } -result {//app:a //lib:util}
 
+test bad-package {package paths with empty or dot-led components are rejected} -setup {
+    set root [build_repo]
+    file mkdir [file join $root .hidden]
+    makeFile {targets { genrule {name h srcs {h.c}} }} [file join $root .hidden BUILD]
+    ::tuck::reset
+    ::tuck::config::init $root
+    ::tuck::phase::setup
+    ::tuck::phase::load_root_rules
+} -body {
+    lmap pkg {.hidden ../x app/../lib a/./b a//b /abs lib/} {
+        catch {::tuck::phase::load_package $pkg} err
+        set err
+    }
+} -result [list \
+    {tuck: invalid package path '//.hidden'} \
+    {tuck: invalid package path '//../x'} \
+    {tuck: invalid package path '//app/../lib'} \
+    {tuck: invalid package path '//a/./b'} \
+    {tuck: invalid package path '//a//b'} \
+    {tuck: invalid package path '///abs'} \
+    {tuck: invalid package path '//lib/'}]
+
 test hermetic {BUILD files cannot use open/exec} -setup {
     set root [makeDirectory hermrepo]
     file mkdir [file join $root .tuck]
