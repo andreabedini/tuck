@@ -90,4 +90,18 @@ test register-action-double-producer {two actions may not produce one artifact} 
     list $err [dict size $::tuck::graph::actions]
 } -result {{tuck: o1 is produced by both //a#0 and //a#1} 1}
 
+test register-action-dup-output {an action may not list an output twice} -setup {
+    reset_stores
+} -body {
+    catch {::tuck::graph::register_action //a {} {o1 o2 o1} cc {}} err
+    list $err [dict size $::tuck::graph::actions] $::tuck::graph::producers
+} -result {{tuck: action //a#0 lists output o1 more than once} 0 {}}
+
+test register-action-dup-input {an action may not list an input twice} -setup {
+    reset_stores
+} -body {
+    catch {::tuck::graph::register_action //a {i1 i1} {o1} cc {}} err
+    list $err [dict size $::tuck::graph::actions] $::tuck::graph::producers
+} -result {{tuck: action //a#0 lists input i1 more than once} 0 {}}
+
 cleanupTests
